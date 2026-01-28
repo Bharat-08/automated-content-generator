@@ -23,7 +23,7 @@ export interface NormalizedPost {
  */
 export const assembleFullPost = (
     scheduled: ScheduledPost,
-    brand: BrandProfile,
+    _brand: BrandProfile,
     goal: PrimaryGoal
 ): NormalizedPost => {
     // Determine if we need to generate new content or use existing

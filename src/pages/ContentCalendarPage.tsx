@@ -67,7 +67,7 @@ const INITIAL_CONFIG: StrategyConfig = {
 const ContentCalendarPage = () => {
     const [posts, setPosts] = useState(mockPosts);
     const [view, setView] = useState<'calendar' | 'list'>('calendar');
-    const [lastChanges, setLastChanges] = useState<string[]>([]);
+    const [, setLastChanges] = useState<string[]>([]);
 
     // Staged Configuration
     const [draftConfig, setDraftConfig] = useState<StrategyConfig>(INITIAL_CONFIG);

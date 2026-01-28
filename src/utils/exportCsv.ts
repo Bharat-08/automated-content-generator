@@ -70,7 +70,7 @@ const createPivotData = (posts: NormalizedPost[]) => {
         'Grand Total': acc['Grand Total'] + r['Grand Total']
     }), { 'Funnel': 'Total', 'Cohort': '', 'Carousel': 0, 'Live': 0, 'Reel': 0, 'Static': 0, 'Grand Total': 0 });
 
-    rows.push(grandTotal);
+    rows.push(grandTotal as any);
 
     return rows;
 };

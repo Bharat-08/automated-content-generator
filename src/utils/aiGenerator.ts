@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { type SocialPost, type ContentPillar } from '../data/mockPosts';
+import { type SocialPost } from '../data/mockPosts';
 import { type ContentGoal } from './cohortLogic';
 import { type PerformanceSignals } from './performanceAnalyzer';
 import { type CPCDimension, type BOATPillar, validateCPC, validateBOAT } from './gtmLogic';
