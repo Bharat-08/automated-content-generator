@@ -79,6 +79,12 @@ OUTPUT FORMAT (JSON ONLY):
   "cpc": ["Category" | "Product" | "Consumer"],
   "boat": "Background" | "Offerings" | "Accessibility" | "Trust" (Optional, required if CPC includes Product)
 }
+
+CRITICAL DISTRIBUTION RULE:
+Distribute post types over the selected period to avoid clustering. 
+- Do NOT generate the same "Cohort" or "Funnel Stage" back-to-back if possible.
+- Ensure variety in "Format" (e.g., mix Reels, Carousels, Text).
+- AVOID 4+ Sales/Product posts in a row.
 `;
 
 export const generateContentIdea = async (

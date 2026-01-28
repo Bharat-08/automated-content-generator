@@ -10,7 +10,7 @@ import { type BrandProfile, generateContentIdea } from '../utils/aiGenerator';
 import { parseCSV } from '../utils/csvParser';
 import { normalizeCalendar } from '../utils/normalizePost';
 import { type PrimaryGoal } from '../utils/platformFrequency';
-import { calculateGoalToCohort, type CohortType } from '../utils/goalToCohort';
+import { calculateGoalToCohort, type CohortType, GOAL_COHORT_DISTRIBUTION } from '../utils/goalToCohort';
 import { decidePostFormat } from '../utils/formatDecider';
 import { analyzePerformance, type PerformanceSignals } from '../utils/performanceAnalyzer';
 import { exportContent } from '../utils/exportCsv';
@@ -44,6 +44,7 @@ interface StrategyConfig {
     planningMonth: string; // YYYY-MM
     performanceSignals: PerformanceSignals | null;
     uploadStatus: { filename: string; count: number } | null;
+    customMix?: Record<CohortType, number>; // Added for manual rebalancing
 }
 
 const INITIAL_CONFIG: StrategyConfig = {
@@ -62,6 +63,7 @@ const INITIAL_CONFIG: StrategyConfig = {
     planningMonth: '2026-02',
     performanceSignals: null,
     uploadStatus: null
+    // customMix defaults to undefined
 };
 
 const ContentCalendarPage = () => {
@@ -117,7 +119,8 @@ const ContentCalendarPage = () => {
         const cohortCounts = calculateGoalToCohort({
             primaryGoal,
             timeframeWeeks,
-            totalPostCount
+            totalPostCount,
+            customMix: config.customMix // Pass custom mix
         });
 
         // 3. Create pool
@@ -161,6 +164,73 @@ const ContentCalendarPage = () => {
         return [...preservedPosts, ...newRangePosts].sort((a, b) =>
             new Date(a.date).getTime() - new Date(b.date).getTime()
         );
+    };
+
+    // New: Regenerate specific week
+    const handleRegenerateWeek = (start: Date, end: Date) => {
+        const config = activeConfig; // Use valid config
+        const primaryGoal = mapToPrimaryGoal(config.goal);
+
+        // 1. Generate ALL slots (to ensure we get the right ones for this timeframe logic)
+        const allSlots = generateDateSlots({
+            planningMonth: config.planningMonth,
+            timeframe: config.timeframe,
+            primaryGoal,
+            activePlatforms: config.brand.platforms as any || [],
+            performanceSignals: config.performanceSignals || undefined
+        });
+
+        // 2. Filter for slots in range
+        const weekSlots = allSlots.filter(s => s.date >= start && s.date <= end);
+
+        if (weekSlots.length === 0) return;
+
+        // 3. Calculate Cohort Distribution for this specific batch
+        const totalPostCount = weekSlots.length;
+        // For a single week, we treat it as 1 week timeframe
+        const cohortCounts = calculateGoalToCohort({
+            primaryGoal,
+            timeframeWeeks: 1,
+            totalPostCount,
+            customMix: config.customMix
+        });
+
+        // 4. Create pool
+        const cohortPool: CohortType[] = [];
+        Object.entries(cohortCounts).forEach(([cohort, count]) => {
+            for (let i = 0; i < count; i++) cohortPool.push(cohort as CohortType);
+        });
+
+        // 5. Assign
+        const newWeekPosts: SocialPost[] = weekSlots.map((slot, idx) => {
+            const cohort = cohortPool[idx % cohortPool.length];
+            const format = decidePostFormat(slot.platform, cohort, primaryGoal, config.performanceSignals || undefined);
+            const dateStr = slot.date.toISOString().split('T')[0];
+
+            return {
+                id: `regen-${dateStr}-${slot.platform}-${Date.now()}-${idx}`, // Force new ID
+                date: dateStr,
+                platform: slot.platform as any,
+                funnel: mapCohortToFunnel(cohort),
+                cohort: 'Founders', // Static context
+                pillar: cohort as any,
+                format: format as any,
+                coreMessage: '', // AI will fill
+                hook: ''
+            };
+        });
+
+        // 6. Merge: Keep posts outside range, add new ones
+        const startStr = start.toISOString().split('T')[0];
+        const endStr = end.toISOString().split('T')[0];
+
+        setPosts(prev => {
+            // Need to be careful with string comparison if timestamps differ, but dateStr is YYYY-MM-DD
+            const outside = prev.filter(p => p.date < startStr || p.date > endStr);
+            return [...outside, ...newWeekPosts].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        });
+
+        setLastChanges([`Regenerated content for week of ${startStr}`]);
     };
 
     // Initialize on mount
@@ -611,7 +681,8 @@ const ContentCalendarPage = () => {
                                                         setDraftConfig(prev => ({
                                                             ...prev,
                                                             goal: next[0] || prev.goal, // Fallback to avoid empty
-                                                            brand: { ...prev.brand, goals: next }
+                                                            brand: { ...prev.brand, goals: next },
+                                                            customMix: undefined // Reset custom mix on goal change
                                                         }));
                                                     }}
                                                     style={{ display: 'none' }}
@@ -647,6 +718,75 @@ const ContentCalendarPage = () => {
                                         />
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        {/* Cohort Mix (Manual Override) */}
+                        <div style={{ backgroundColor: '#18181b', padding: '24px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #27272a', paddingBottom: '16px' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }}></div>
+                                <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#fff', margin: 0 }}>Content Mix</h3>
+                            </div>
+
+                            <p style={{ fontSize: '12px', color: '#71717a', margin: 0 }}>Adjusting will override goal defaults.</p>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {(['Educational', 'Product', 'Brand', 'Community'] as CohortType[]).map(cohort => {
+                                    // Determine current value: custom or default
+                                    const primaryGoal = mapToPrimaryGoal(draftConfig.goal);
+                                    const defaultValue = GOAL_COHORT_DISTRIBUTION[primaryGoal][cohort];
+                                    const currentValue = draftConfig.customMix ? (draftConfig.customMix[cohort] || 0) : defaultValue;
+
+                                    // Helper for cohort key to lowercase key for color
+                                    const colorKey = cohort.toLowerCase() as keyof CohortMix;
+
+                                    return (
+                                        <div key={cohort} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                                <span style={{ fontWeight: '600', color: '#d4d4d8' }}>{cohort}</span>
+                                                <span style={{ color: '#a1a1aa' }}>{currentValue}%</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="100"
+                                                step="5"
+                                                value={currentValue}
+                                                onChange={(e) => {
+                                                    const val = parseInt(e.target.value);
+                                                    setDraftConfig(prev => {
+                                                        const pGoal = mapToPrimaryGoal(prev.goal);
+                                                        // Initialize from default if undefined
+                                                        const currentMix = prev.customMix || { ...GOAL_COHORT_DISTRIBUTION[pGoal] };
+                                                        return {
+                                                            ...prev,
+                                                            customMix: { ...currentMix, [cohort]: val }
+                                                        };
+                                                    })
+                                                }}
+                                                style={{
+                                                    width: '100%',
+                                                    accentColor: getColor(colorKey)
+                                                }}
+                                            />
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Total validation */}
+                                {(() => {
+                                    const primaryGoal = mapToPrimaryGoal(draftConfig.goal);
+                                    const mix = draftConfig.customMix || GOAL_COHORT_DISTRIBUTION[primaryGoal];
+                                    const total = Object.values(mix).reduce((a, b) => a + b, 0);
+                                    if (total !== 100) {
+                                        return (
+                                            <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', textAlign: 'center' }}>
+                                                Total: {total}% (Should be 100%)
+                                            </div>
+                                        );
+                                    }
+                                    return <div style={{ fontSize: '11px', color: '#10b981', marginTop: '4px', textAlign: 'center' }}>Total: 100%</div>;
+                                })()}
                             </div>
                         </div>
 
@@ -871,7 +1011,12 @@ const ContentCalendarPage = () => {
                     {/* View Content */}
                     <div style={{ opacity: isGeneratingAll ? 0.5 : 1, transition: 'opacity 0.3s' }}>
                         {view === 'calendar' ? (
-                            <CalendarGrid posts={normalizedPosts} isGeneratingAll={isGeneratingAll} generatingPostIds={generatingPostIds} />
+                            <CalendarGrid
+                                posts={normalizedPosts}
+                                isGeneratingAll={isGeneratingAll}
+                                generatingPostIds={generatingPostIds}
+                                onRegenerateWeek={handleRegenerateWeek}
+                            />
                         ) : (
                             <ListView posts={normalizedPosts} onRegenerate={handleRegeneratePost} isGeneratingAll={isGeneratingAll} generatingPostIds={generatingPostIds} />
                         )}

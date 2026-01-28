@@ -6,11 +6,12 @@ export interface GoalToCohortInput {
     primaryGoal: PrimaryGoal;
     timeframeWeeks: number;
     totalPostCount: number;
+    customMix?: Record<CohortType, number>; // Added optional custom mix
 }
 
 export type CohortCounts = Record<CohortType, number>;
 
-const GOAL_COHORT_DISTRIBUTION: Record<PrimaryGoal, Record<CohortType, number>> = {
+export const GOAL_COHORT_DISTRIBUTION: Record<PrimaryGoal, Record<CohortType, number>> = {
     'Engagement/Awareness': {
         Educational: 20,
         Product: 10,
@@ -41,14 +42,17 @@ const GOAL_COHORT_DISTRIBUTION: Record<PrimaryGoal, Record<CohortType, number>> 
 export const calculateGoalToCohort = (
     input: GoalToCohortInput
 ): CohortCounts => {
-    const { primaryGoal, totalPostCount } = input;
-    const distribution = GOAL_COHORT_DISTRIBUTION[primaryGoal];
+    const { primaryGoal, totalPostCount, customMix } = input;
 
-    const cohorts = Object.keys(distribution) as CohortType[];
+    // Use custom mix if provided, otherwise fallback to goal-based default
+    const distribution = customMix || GOAL_COHORT_DISTRIBUTION[primaryGoal];
+
+    const cohorts = ['Educational', 'Product', 'Brand', 'Community'] as CohortType[];
 
     // 1. Calculate raw counts and fractional parts
     const countsWithRemainder = cohorts.map(cohort => {
-        const raw = (distribution[cohort] / 100) * totalPostCount;
+        const percentage = distribution[cohort] || 0;
+        const raw = (percentage / 100) * totalPostCount;
         return {
             cohort,
             count: Math.floor(raw),

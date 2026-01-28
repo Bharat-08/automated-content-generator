@@ -5,6 +5,7 @@ interface CalendarGridProps {
     posts: NormalizedPost[];
     isGeneratingAll?: boolean;
     generatingPostIds?: Set<string>;
+    onRegenerateWeek?: (start: Date, end: Date) => void;
 }
 
 // Icons
@@ -21,7 +22,7 @@ const PlatformIcon = ({ platform }: { platform: string }) => {
     }
 }
 
-const CalendarGrid = ({ posts, isGeneratingAll }: CalendarGridProps) => {
+const CalendarGrid = ({ posts, isGeneratingAll, onRegenerateWeek }: CalendarGridProps) => {
     // Determine the months to render based on posts
     const monthsToRender = useMemo(() => {
         if (posts.length === 0) return []; // No posts, no months
@@ -74,9 +75,20 @@ const CalendarGrid = ({ posts, isGeneratingAll }: CalendarGridProps) => {
                 const firstDayOfMonth = new Date(year, month, 1).getDay();
                 const startDay = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
 
-                const days = [];
-                for (let i = 0; i < startDay; i++) days.push(null);
-                for (let i = 1; i <= daysInMonth; i++) days.push(i);
+                const allDays = [];
+                for (let i = 0; i < startDay; i++) allDays.push(null);
+                for (let i = 1; i <= daysInMonth; i++) allDays.push(i);
+
+                // Pad end to complete the last week
+                while (allDays.length % 7 !== 0) {
+                    allDays.push(null);
+                }
+
+                // Chunk into weeks
+                const weeks = [];
+                for (let i = 0; i < allDays.length; i += 7) {
+                    weeks.push(allDays.slice(i, i + 7));
+                }
 
                 const getPostsForDate = (day: number) => {
                     const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -95,13 +107,16 @@ const CalendarGrid = ({ posts, isGeneratingAll }: CalendarGridProps) => {
                         {/* Grid Header */}
                         <div style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(7, 1fr)',
+                            gridTemplateColumns: '40px repeat(7, 1fr)', // Added column for actions
                             backgroundColor: '#18181b',
                             border: '1px solid #27272a',
                             borderBottom: 'none',
                             borderTopLeftRadius: '8px',
                             borderTopRightRadius: '8px'
                         }}>
+                            {/* Empty corner for actions column */}
+                            <div style={{ borderRight: '1px solid #27272a' }}></div>
+
                             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
                                 <div key={day} style={{
                                     padding: '12px 8px',
@@ -120,119 +135,172 @@ const CalendarGrid = ({ posts, isGeneratingAll }: CalendarGridProps) => {
 
                         {/* Grid Body */}
                         <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(7, 1fr)',
-                            backgroundColor: '#27272a', // Gap color
+                            display: 'flex',
+                            flexDirection: 'column',
                             border: '1px solid #27272a',
                             borderBottomLeftRadius: '8px',
                             borderBottomRightRadius: '8px',
                             overflow: 'hidden',
-                            gap: '1px' // Grid lines
                         }}>
-                            {days.map((day, index) => {
-                                const dailyPosts = day ? getPostsForDate(day) : [];
-                                const isWeekend = (index + 1) % 7 === 0 || (index + 1) % 7 === 6;
+                            {weeks.map((week, weekIndex) => {
+                                // Calculate week date range for regeneration
+                                const validDays = week.filter(d => d !== null) as number[];
+                                const weekStartDay = validDays[0];
+                                const weekEndDay = validDays[validDays.length - 1];
+
+                                const startDate = new Date(year, month, weekStartDay);
+                                const endDate = new Date(year, month, weekEndDay);
+                                // Set proper start/end times
+                                startDate.setHours(0, 0, 0, 0);
+                                endDate.setHours(23, 59, 59, 999);
 
                                 return (
-                                    <div
-                                        key={index}
-                                        style={{
-                                            minHeight: '160px',
-                                            maxHeight: '240px', // Prevent super tall cells, encourage scroll
-                                            backgroundColor: day ? (isWeekend ? '#121215' : '#09090b') : '#18181b',
+                                    <div key={weekIndex} style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: '40px repeat(7, 1fr)',
+                                        borderTop: weekIndex > 0 ? '1px solid #27272a' : 'none',
+                                    }}>
+                                        {/* Action Column */}
+                                        <div style={{
+                                            borderRight: '1px solid #27272a',
+                                            backgroundColor: '#18181b',
                                             display: 'flex',
-                                            flexDirection: 'column',
-                                            overflow: 'hidden', // Contain scroll
-                                            position: 'relative'
-                                        }}
-                                    >
-                                        {day && (
-                                            <>
-                                                {/* Date Number */}
-                                                <div style={{
-                                                    padding: '8px 10px',
-                                                    textAlign: 'right',
-                                                    fontSize: '12px',
-                                                    fontWeight: '600',
-                                                    color: dailyPosts.length > 0 ? '#e4e4e7' : '#52525b',
-                                                    position: 'sticky',
-                                                    top: 0,
-                                                    backgroundColor: 'inherit',
-                                                    zIndex: 2
-                                                }}>
-                                                    {day}
-                                                </div>
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}>
+                                            {onRegenerateWeek && validDays.length > 0 && (
+                                                <button
+                                                    onClick={() => onRegenerateWeek(startDate, endDate)}
+                                                    title="Regenerate this week"
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        cursor: 'pointer',
+                                                        color: '#71717a',
+                                                        padding: '4px',
+                                                        display: 'flex',
+                                                        transition: 'color 0.2s'
+                                                    }}
+                                                    onMouseEnter={e => e.currentTarget.style.color = '#fff'}
+                                                    onMouseLeave={e => e.currentTarget.style.color = '#71717a'}
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <polyline points="23 4 23 10 17 10"></polyline>
+                                                        <polyline points="1 20 1 14 7 14"></polyline>
+                                                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                                    </svg>
+                                                </button>
+                                            )}
+                                        </div>
 
-                                                {/* Post Stack - Scrollable Area */}
-                                                <div style={{
-                                                    padding: '0 6px 8px 6px',
-                                                    display: 'flex',
-                                                    flexDirection: 'column',
-                                                    gap: '6px',
-                                                    overflowY: 'auto',
-                                                    flex: 1,
-                                                    scrollbarWidth: 'none', // Hide scrollbar for cleaner look
-                                                }}>
-                                                    {dailyPosts.map((post) => (
-                                                        <div
-                                                            key={post.id}
-                                                            style={{
-                                                                backgroundColor: '#18181b',
-                                                                borderRadius: '4px',
-                                                                border: '1px solid #27272a',
-                                                                transition: 'border-color 0.1s',
-                                                                cursor: 'pointer',
+                                        {/* Days */}
+                                        {week.map((day, dayIndex) => {
+                                            const dailyPosts = day ? getPostsForDate(day) : [];
+                                            const isWeekend = (dayIndex + 1) % 7 === 6 || (dayIndex + 1) % 7 === 0;
+
+                                            return (
+                                                <div
+                                                    key={dayIndex}
+                                                    style={{
+                                                        minHeight: '160px',
+                                                        maxHeight: '240px',
+                                                        backgroundColor: day ? (isWeekend ? '#121215' : '#09090b') : '#18181b',
+                                                        borderRight: dayIndex < 6 ? '1px solid #27272a' : 'none',
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        overflow: 'hidden',
+                                                        position: 'relative'
+                                                    }}
+                                                >
+                                                    {day && (
+                                                        <>
+                                                            {/* Date Number */}
+                                                            <div style={{
+                                                                padding: '8px 10px',
+                                                                textAlign: 'right',
+                                                                fontSize: '12px',
+                                                                fontWeight: '600',
+                                                                color: dailyPosts.length > 0 ? '#e4e4e7' : '#52525b',
+                                                                position: 'sticky',
+                                                                top: 0,
+                                                                backgroundColor: 'inherit',
+                                                                zIndex: 2
+                                                            }}>
+                                                                {day}
+                                                            </div>
+
+                                                            {/* Post Stack */}
+                                                            <div style={{
+                                                                padding: '0 6px 8px 6px',
                                                                 display: 'flex',
                                                                 flexDirection: 'column',
-                                                                overflow: 'hidden'
-                                                            }}
-                                                            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#52525b'}
-                                                            onMouseLeave={(e) => e.currentTarget.style.borderColor = '#27272a'}
-                                                        >
-                                                            {/* Card Header: Platform | Format | Funnel/Cohort */}
-                                                            <div style={{
-                                                                padding: '6px 8px',
-                                                                borderBottom: '1px solid #27272a',
-                                                                backgroundColor: '#202023',
-                                                                display: 'flex',
-                                                                justifyContent: 'space-between',
-                                                                alignItems: 'center'
+                                                                gap: '6px',
+                                                                overflowY: 'auto',
+                                                                flex: 1,
+                                                                scrollbarWidth: 'none',
                                                             }}>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                    <PlatformIcon platform={post.platform} />
-                                                                    <span style={{ fontSize: '9px', fontWeight: '700', color: '#a1a1aa', textTransform: 'uppercase' }}>
-                                                                        {post.format.slice(0, 4)} {/* Truncate format if long */}
-                                                                    </span>
-                                                                </div>
-                                                                <div
-                                                                    style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: getCohortColor(post.cohort) }}
-                                                                    title={`${post.cohort} • ${post.funnel}`}
-                                                                />
-                                                            </div>
+                                                                {dailyPosts.map((post) => (
+                                                                    <div
+                                                                        key={post.id}
+                                                                        style={{
+                                                                            backgroundColor: '#18181b',
+                                                                            borderRadius: '4px',
+                                                                            border: '1px solid #27272a',
+                                                                            transition: 'border-color 0.1s',
+                                                                            cursor: 'pointer',
+                                                                            display: 'flex',
+                                                                            flexDirection: 'column',
+                                                                            overflow: 'hidden'
+                                                                        }}
+                                                                        onMouseEnter={(e) => e.currentTarget.style.borderColor = '#52525b'}
+                                                                        onMouseLeave={(e) => e.currentTarget.style.borderColor = '#27272a'}
+                                                                    >
+                                                                        {/* Card Header */}
+                                                                        <div style={{
+                                                                            padding: '6px 8px',
+                                                                            borderBottom: '1px solid #27272a',
+                                                                            backgroundColor: '#202023',
+                                                                            display: 'flex',
+                                                                            justifyContent: 'space-between',
+                                                                            alignItems: 'center'
+                                                                        }}>
+                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                                <PlatformIcon platform={post.platform} />
+                                                                                <span style={{ fontSize: '9px', fontWeight: '700', color: '#a1a1aa', textTransform: 'uppercase' }}>
+                                                                                    {post.format ? post.format.slice(0, 4) : 'TXT'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div
+                                                                                style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: getCohortColor(post.cohort) }}
+                                                                                title={`${post.cohort} • ${post.funnel}`}
+                                                                            />
+                                                                        </div>
 
-                                                            {/* Card Body: Content */}
-                                                            <div style={{ padding: '6px 8px' }}>
-                                                                <div style={{
-                                                                    fontSize: '10px',
-                                                                    color: '#d4d4d8',
-                                                                    lineHeight: '1.4',
-                                                                    display: '-webkit-box',
-                                                                    WebkitLineClamp: 2,
-                                                                    WebkitBoxOrient: 'vertical',
-                                                                    overflow: 'hidden'
-                                                                }} title={post.coreMessage}>
-                                                                    {post.coreMessage || <span style={{ opacity: 0.5 }}>Generating...</span>}
-                                                                </div>
-
-                                                                <div style={{ marginTop: '4px', fontSize: '9px', color: '#71717a' }}>
-                                                                    {post.funnel}
-                                                                </div>
+                                                                        {/* Card Body */}
+                                                                        <div style={{ padding: '6px 8px' }}>
+                                                                            <div style={{
+                                                                                fontSize: '10px',
+                                                                                color: '#d4d4d8',
+                                                                                lineHeight: '1.4',
+                                                                                display: '-webkit-box',
+                                                                                WebkitLineClamp: 2,
+                                                                                WebkitBoxOrient: 'vertical',
+                                                                                overflow: 'hidden'
+                                                                            }} title={post.coreMessage}>
+                                                                                {post.coreMessage || <span style={{ opacity: 0.5 }}>Generating...</span>}
+                                                                            </div>
+                                                                            <div style={{ marginTop: '4px', fontSize: '9px', color: '#71717a' }}>
+                                                                                {post.funnel}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
                                                             </div>
-                                                        </div>
-                                                    ))}
+                                                        </>
+                                                    )}
                                                 </div>
-                                            </>
-                                        )}
+                                            );
+                                        })}
                                     </div>
                                 );
                             })}

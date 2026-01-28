@@ -1,4 +1,4 @@
-import { type Platform, type PrimaryGoal, calculatePlatformFrequency } from './platformFrequency';
+import { type Platform, type PrimaryGoal } from './platformFrequency';
 import { type PerformanceSignals } from './performanceAnalyzer';
 
 export interface SlotConfig {
@@ -15,17 +15,8 @@ export interface GeneratedSlot {
     format: 'video' | 'text' | 'image' | 'carousel'; // Placeholder, will be refined by formatDecider
 }
 
-// Deterministic patterns for weekly distribution
+// Deterministic patterns removed - switched to Daily Cycle Strategy
 // 0 = Sunday, 1 = Monday, ... 6 = Saturday
-const WEEKLY_PATTERNS: Record<number, number[]> = {
-    1: [2],             // 1x: Tue
-    2: [1, 3],          // 2x: Mon, Wed
-    3: [1, 3, 6],       // 3x: Mon, Wed, Sat (Weekend added)
-    4: [1, 3, 5, 0],    // 4x: Mon, Wed, Fri, Sun (Weekend added)
-    5: [1, 2, 4, 5, 6], // 5x: Mon, Tue, Thu, Fri, Sat (Weekend added)
-    6: [1, 2, 3, 4, 5, 6], // 6x: Mon-Sat
-    7: [0, 1, 2, 3, 4, 5, 6] // 7x: Daily
-};
 
 export const generateDateSlots = (config: SlotConfig): GeneratedSlot[] => {
     // 1. Determine Date Range
@@ -48,53 +39,28 @@ export const generateDateSlots = (config: SlotConfig): GeneratedSlot[] => {
         endDate.setHours(12, 0, 0);
     }
 
-    // 2. Frequency Config
-    // Calculate how many weeks roughly (for total count calculation internally if needed)
-    // but for slot generation, we just iterate week by week.
-    const daysDiff = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24) + 1;
-    const timeframeWeeks = Math.ceil(daysDiff / 7);
-
-    const frequencies = calculatePlatformFrequency({
-        activePlatforms: config.activePlatforms, // Use config
-        primaryGoal: config.primaryGoal,
-        timeframeWeeks,
-        platformWeights: config.performanceSignals?.platformWeights
-    });
-
     const slots: GeneratedSlot[] = [];
+    const platforms = config.activePlatforms.length > 0 ? config.activePlatforms : ['LinkedIn'] as Platform[];
 
-    // 3. Generate Slots per Platform
-    frequencies.forEach(freq => {
-        const weeklyCount = Math.min(Math.max(freq.weeklyFrequency, 1), 7);
-        const pattern = WEEKLY_PATTERNS[weeklyCount] || WEEKLY_PATTERNS[1];
+    // 2. Simple Daily Loop (User Requested "Plan on all days")
+    const pointer = new Date(startDate);
+    let platformIndex = 0;
 
-        // Iterate through weeks
-        // We start from startDate's week and go until we pass endDate
-        // Align to previous Monday (or Sunday) but simple day iteration works fine
+    while (pointer <= endDate) {
+        // Round-robin distribution of platforms
+        const platform = platforms[platformIndex % platforms.length];
 
-        const pointer = new Date(startDate);
-        while (pointer <= endDate) {
-            const dayOfWeek = pointer.getDay(); // 0=Sun, 1=Mon...
+        slots.push({
+            date: new Date(pointer),
+            platform: platform,
+            format: 'text'
+        });
 
-            if (pattern.includes(dayOfWeek)) {
-                // Determine format (basic round robin or placeholder for now)
-                // In real app, formatDecider does this. We just need the slot.
-                slots.push({
-                    date: new Date(pointer),
-                    platform: freq.platform,
-                    format: 'text' // strictly temporary, will be overwritten by decidePostFormat
-                });
-            }
+        // Advance
+        pointer.setDate(pointer.getDate() + 1);
+        platformIndex++;
+    }
 
-            pointer.setDate(pointer.getDate() + 1);
-        }
-    });
-
-    // 4. Sort by Date then Platform
-    return slots.sort((a, b) => {
-        const tA = a.date.getTime();
-        const tB = b.date.getTime();
-        if (tA !== tB) return tA - tB;
-        return a.platform.localeCompare(b.platform);
-    });
+    // 3. Sort
+    return slots;
 };
