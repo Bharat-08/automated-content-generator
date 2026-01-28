@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { type NormalizedPost } from '../utils/normalizePost';
 
 interface CalendarGridProps {
@@ -6,6 +6,7 @@ interface CalendarGridProps {
     isGeneratingAll?: boolean;
     generatingPostIds?: Set<string>;
     onRegenerateWeek?: (start: Date, end: Date) => void;
+    onStop?: () => void;
 }
 
 // Icons
@@ -22,7 +23,9 @@ const PlatformIcon = ({ platform }: { platform: string }) => {
     }
 }
 
-const CalendarGrid = ({ posts, isGeneratingAll, onRegenerateWeek }: CalendarGridProps) => {
+const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateWeek, onStop }: CalendarGridProps) => {
+    const [selectedPost, setSelectedPost] = useState<NormalizedPost | null>(null);
+
     // Determine the months to render based on posts
     const monthsToRender = useMemo(() => {
         if (posts.length === 0) return []; // No posts, no months
@@ -63,13 +66,75 @@ const CalendarGrid = ({ posts, isGeneratingAll, onRegenerateWeek }: CalendarGrid
         <div style={{
             color: '#e4e4e7',
             fontFamily: "'Inter', sans-serif",
-            opacity: isGeneratingAll ? 0.6 : 1,
-            transition: 'opacity 0.2s',
+            position: 'relative',
+            minHeight: '400px',
             display: 'flex',
             flexDirection: 'column',
             gap: '48px',
-            width: '100%' // Ensure full container width
+            width: '100%'
         }}>
+            {isGeneratingAll && (
+                <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    backgroundColor: 'rgba(9, 9, 11, 0.8)',
+                    backdropFilter: 'blur(4px)',
+                    zIndex: 50,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '8px' // Optional, if container has radius
+                }}>
+                    <div style={{
+                        width: '48px',
+                        height: '48px',
+                        border: '3px solid rgba(255, 255, 255, 0.1)',
+                        borderTopColor: '#4f46e5',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite',
+                        marginBottom: '16px'
+                    }} />
+                    <div style={{ color: '#fff', fontWeight: '600', fontSize: '15px' }}>
+                        Generating Content Strategy...
+                    </div>
+                    {/* Removed specific model text as requested */}
+
+                    {onStop && (
+                        <button
+                            onClick={onStop}
+                            style={{
+                                marginTop: '24px',
+                                padding: '8px 16px',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                color: '#ef4444',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                                e.currentTarget.style.transform = 'none';
+                            }}
+                        >
+                            Stop Generation
+                        </button>
+                    )}
+
+                    {/* Ensure keyframe style exists if not globally defined, mostly likely handled by previous duplicate style or global css */}
+                    <style>{`
+                        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+                    `}</style>
+                </div>
+            )}
+
             {monthsToRender.map(({ year, month }) => {
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
                 const firstDayOfMonth = new Date(year, month, 1).getDay();
@@ -250,11 +315,34 @@ const CalendarGrid = ({ posts, isGeneratingAll, onRegenerateWeek }: CalendarGrid
                                                                             cursor: 'pointer',
                                                                             display: 'flex',
                                                                             flexDirection: 'column',
-                                                                            overflow: 'hidden'
+                                                                            overflow: 'hidden',
+                                                                            position: 'relative', // Essential for overlay
+                                                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
                                                                         }}
+                                                                        onClick={() => setSelectedPost(post)}
                                                                         onMouseEnter={(e) => e.currentTarget.style.borderColor = '#52525b'}
                                                                         onMouseLeave={(e) => e.currentTarget.style.borderColor = '#27272a'}
                                                                     >
+                                                                        {/* Loading Overlay */}
+                                                                        {generatingPostIds?.has(post.id) && (
+                                                                            <div style={{
+                                                                                position: 'absolute',
+                                                                                inset: 0,
+                                                                                backgroundColor: 'rgba(24, 24, 27, 0.8)',
+                                                                                backdropFilter: 'blur(2px)',
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'center',
+                                                                                zIndex: 20
+                                                                            }}>
+                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="3" style={{ animation: 'spin 1s linear infinite' }}>
+                                                                                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                                                                </svg>
+                                                                                <style>{`
+                                                                                    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+                                                                                `}</style>
+                                                                            </div>
+                                                                        )}
                                                                         {/* Card Header */}
                                                                         <div style={{
                                                                             padding: '6px 8px',
@@ -308,6 +396,150 @@ const CalendarGrid = ({ posts, isGeneratingAll, onRegenerateWeek }: CalendarGrid
                     </div>
                 );
             })}
+            {/* Post Detail Modal */}
+            {selectedPost && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        backgroundColor: 'rgba(0,0,0,0.85)',
+                        backdropFilter: 'blur(8px)',
+                        zIndex: 1000,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '24px'
+                    }}
+                    onClick={() => setSelectedPost(null)}
+                >
+                    <div
+                        style={{
+                            width: '100%',
+                            maxWidth: '600px',
+                            backgroundColor: '#18181b',
+                            borderRadius: '16px',
+                            border: '1px solid #27272a',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            maxHeight: '90vh',
+                            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                            overflow: 'hidden'
+                        }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Modal Header */}
+                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #27272a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#202023' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{
+                                    padding: '8px',
+                                    backgroundColor: 'rgba(255,255,255,0.05)',
+                                    borderRadius: '8px',
+                                    display: 'flex'
+                                }}>
+                                    <PlatformIcon platform={selectedPost.platform} />
+                                </div>
+                                <div>
+                                    <h2 style={{ fontSize: '16px', fontWeight: '800', margin: 0, color: '#fff' }}>Post Details</h2>
+                                    <p style={{ fontSize: '12px', color: '#71717a', margin: '2px 0 0 0' }}>{selectedPost.date} • {selectedPost.platform} {selectedPost.format}</ p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setSelectedPost(null)}
+                                style={{
+                                    background: '#27272a',
+                                    border: 'none',
+                                    color: '#a1a1aa',
+                                    cursor: 'pointer',
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.color = '#fff'}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Modal Content */}
+                        <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                            {/* Metadata Row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div style={{ backgroundColor: '#202023', padding: '12px', borderRadius: '8px', border: '1px solid #27272a' }}>
+                                    <label style={{ fontSize: '10px', fontWeight: '700', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cohort</label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: getCohortColor(selectedPost.cohort) }}></div>
+                                        <span style={{ fontSize: '13px', fontWeight: '600', color: '#e4e4e7' }}>{selectedPost.cohort}</span>
+                                    </div>
+                                </div>
+                                <div style={{ backgroundColor: '#202023', padding: '12px', borderRadius: '8px', border: '1px solid #27272a' }}>
+                                    <label style={{ fontSize: '10px', fontWeight: '700', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Funnel Stage</label>
+                                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#e4e4e7', marginTop: '4px' }}>{selectedPost.funnel}</div>
+                                </div>
+                            </div>
+
+                            {/* Core Message */}
+                            <div>
+                                <label style={{ fontSize: '10px', fontWeight: '700', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Core Message</label>
+                                <div style={{
+                                    marginTop: '8px',
+                                    padding: '16px',
+                                    backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                                    color: '#93c5fd',
+                                    borderRadius: '12px',
+                                    fontSize: '14px',
+                                    lineHeight: '1.6',
+                                    fontWeight: '500',
+                                    border: '1px solid rgba(59, 130, 246, 0.1)'
+                                }}>
+                                    {selectedPost.coreMessage || "Generating insight..."}
+                                </div>
+                            </div>
+
+                            {/* Communication / Structure */}
+                            <div>
+                                <label style={{ fontSize: '10px', fontWeight: '700', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Detailed Structure</label>
+                                <div style={{
+                                    marginTop: '8px',
+                                    padding: '16px',
+                                    backgroundColor: '#09090b',
+                                    color: '#d4d4d8',
+                                    borderRadius: '12px',
+                                    fontSize: '13px',
+                                    lineHeight: '1.8',
+                                    whiteSpace: 'pre-wrap',
+                                    border: '1px solid #27272a',
+                                    minHeight: '100px'
+                                }}>
+                                    {selectedPost.postCommunication || "Waiting for AI content generation..."}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div style={{ padding: '16px 24px', backgroundColor: '#202023', borderTop: '1px solid #27272a', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                            <button
+                                onClick={() => setSelectedPost(null)}
+                                style={{
+                                    padding: '10px 20px',
+                                    backgroundColor: '#fff',
+                                    color: '#000',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '700'
+                                }}
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

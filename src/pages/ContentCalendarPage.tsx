@@ -1,12 +1,12 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import CalendarGrid from '../components/CalendarGrid';
 import ListView from '../components/ListView';
 import { mockPosts, type SocialPost } from '../data/mockPosts';
 import { generateDateSlots } from '../utils/dateSlotGenerator';
 import { mapCohortToFunnel } from '../utils/postDerivations';
-import { type ContentGoal, getRecommendedMix, getCurrentMix, type CohortMix } from '../utils/cohortLogic';
+import { type ContentGoal, getRecommendedMix, type CohortMix } from '../utils/cohortLogic';
 import { rebalanceCalendar } from '../utils/rebalanceCalendar';
-import { type BrandProfile, generateContentIdea } from '../utils/aiGenerator';
+import { type BrandProfile, generateContentIdea, suggestStrategyMix } from '../utils/aiGenerator';
 import { parseCSV } from '../utils/csvParser';
 import { normalizeCalendar } from '../utils/normalizePost';
 import { type PrimaryGoal } from '../utils/platformFrequency';
@@ -257,6 +257,36 @@ const ContentCalendarPage = () => {
     const [showExportMenu, setShowExportMenu] = useState(false);
     const [generatingPostIds, setGeneratingPostIds] = useState<Set<string>>(new Set());
     const [error, setError] = useState<string | null>(null);
+    const [isAiStrategyOn, setIsAiStrategyOn] = useState(true);
+    const [isSuggesting, setIsSuggesting] = useState(false);
+
+    // Auto-suggest strategy when goals or signals change
+    useEffect(() => {
+        if (!isAiStrategyOn) return;
+
+        const suggest = async () => {
+            setIsSuggesting(true);
+            try {
+                const suggestion = await suggestStrategyMix(draftConfig.brand, draftConfig.performanceSignals || undefined);
+                setDraftConfig(prev => ({
+                    ...prev,
+                    customMix: {
+                        Educational: suggestion.educational,
+                        Product: suggestion.product,
+                        Brand: suggestion.brand,
+                        Community: suggestion.community
+                    }
+                }));
+            } catch (err) {
+                console.error("Auto-strategy suggestion failed", err);
+            } finally {
+                setIsSuggesting(false);
+            }
+        };
+
+        const timeout = setTimeout(suggest, 1000); // Debounce
+        return () => clearTimeout(timeout);
+    }, [draftConfig.brand.goals, draftConfig.brand.usp, draftConfig.brand.audience, draftConfig.performanceSignals, isAiStrategyOn]);
 
     // Basic Validation
     const validationErrors = useMemo(() => {
@@ -311,7 +341,7 @@ const ContentCalendarPage = () => {
         });
     }, [posts, activeConfig.timeframe, activeConfig.planningMonth]);
 
-    const currentMix = useMemo(() => getCurrentMix(filteredPosts), [filteredPosts]);
+
     const recommendedMix = useMemo(() => getRecommendedMix(activeConfig.goal), [activeConfig.goal]);
 
     const normalizedPosts = useMemo(() => {
@@ -380,9 +410,17 @@ const ContentCalendarPage = () => {
         }
     };
 
+    const stopGenerationRef = useRef(false);
+
+    const handleStopGeneration = () => {
+        stopGenerationRef.current = true;
+        setLastChanges(['Generation stopped by user.']);
+    };
+
     const handleGenerateAll = async () => {
         setError(null);
         setIsGeneratingAll(true);
+        stopGenerationRef.current = false; // Reset stop flag
         let successCount = 0;
         let failCount = 0;
 
@@ -416,6 +454,11 @@ const ContentCalendarPage = () => {
             const postIds = postsToGenerate.map(p => p.id);
 
             for (const postId of postIds) {
+                // Check for stop signal
+                if (stopGenerationRef.current) {
+                    break;
+                }
+
                 // We use 'newPosts' here because state 'posts' might not be updated inside this closure yet
                 const currentPost = newPosts.find(p => p.id === postId);
                 if (!currentPost) continue;
@@ -448,7 +491,9 @@ const ContentCalendarPage = () => {
                 }
             }
 
-            if (failCount > 0) {
+            if (stopGenerationRef.current) {
+                // toast/notify already handled by stop handler
+            } else if (failCount > 0) {
                 setLastChanges([`Bulk generation complete: ${successCount} updated, ${failCount} skipped.`]);
             } else {
                 setLastChanges([`Clean calendar generated with ${successCount} fresh ideas.`]);
@@ -458,6 +503,7 @@ const ContentCalendarPage = () => {
             setError("Bulk generation encountered a critical error.");
         } finally {
             setIsGeneratingAll(false);
+            stopGenerationRef.current = false;
         }
     };
 
@@ -506,15 +552,7 @@ const ContentCalendarPage = () => {
         reader.readAsText(file);
     };
 
-    const mixKeys: (keyof CohortMix)[] = ['educational', 'product', 'community', 'brand'];
-    const getLabel = (key: keyof CohortMix) => {
-        switch (key) {
-            case 'educational': return 'Education';
-            case 'product': return 'Product';
-            case 'community': return 'Community';
-            case 'brand': return 'Brand';
-        }
-    };
+
     const getColor = (key: keyof CohortMix) => {
         switch (key) {
             case 'educational': return '#3b82f6';
@@ -728,65 +766,114 @@ const ContentCalendarPage = () => {
                                 <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#fff', margin: 0 }}>Content Mix</h3>
                             </div>
 
-                            <p style={{ fontSize: '12px', color: '#71717a', margin: 0 }}>Adjusting will override goal defaults.</p>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <p style={{ fontSize: '12px', color: '#71717a', margin: 0 }}>Adjusting will override goal defaults.</p>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={isAiStrategyOn}
+                                        onChange={e => setIsAiStrategyOn(e.target.checked)}
+                                        style={{ accentColor: '#10b981' }}
+                                    />
+                                    <span style={{ fontSize: '11px', fontWeight: '700', color: isAiStrategyOn ? '#10b981' : '#71717a' }}>
+                                        {isSuggesting ? 'AI Suggesting...' : 'AI Suggestion'}
+                                    </span>
+                                </label>
+                            </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {(['Educational', 'Product', 'Brand', 'Community'] as CohortType[]).map(cohort => {
-                                    // Determine current value: custom or default
+                                    // Determine current value
                                     const primaryGoal = mapToPrimaryGoal(draftConfig.goal);
                                     const defaultValue = GOAL_COHORT_DISTRIBUTION[primaryGoal][cohort];
                                     const currentValue = draftConfig.customMix ? (draftConfig.customMix[cohort] || 0) : defaultValue;
 
-                                    // Helper for cohort key to lowercase key for color
                                     const colorKey = cohort.toLowerCase() as keyof CohortMix;
 
                                     return (
                                         <div key={cohort} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
                                                 <span style={{ fontWeight: '600', color: '#d4d4d8' }}>{cohort}</span>
-                                                <span style={{ color: '#a1a1aa' }}>{currentValue}%</span>
+                                                <span style={{ color: '#a1a1aa' }}>{Math.round(currentValue)}%</span>
                                             </div>
                                             <input
                                                 type="range"
                                                 min="0"
                                                 max="100"
-                                                step="5"
+                                                step="1" // Allow fine grain since we auto-calc
                                                 value={currentValue}
                                                 onChange={(e) => {
-                                                    const val = parseInt(e.target.value);
+                                                    const newValue = parseInt(e.target.value);
+
+                                                    // SMART BALANCING LOGIC
                                                     setDraftConfig(prev => {
                                                         const pGoal = mapToPrimaryGoal(prev.goal);
-                                                        // Initialize from default if undefined
-                                                        const currentMix = prev.customMix || { ...GOAL_COHORT_DISTRIBUTION[pGoal] };
+                                                        const oldMix = prev.customMix || { ...GOAL_COHORT_DISTRIBUTION[pGoal] };
+
+                                                        // 1. Calculate how much we need to distribute to others
+                                                        const targetRemainder = 100 - newValue;
+                                                        const otherKeys = (Object.keys(oldMix) as CohortType[]).filter(k => k !== cohort);
+
+                                                        // 2. Calculate current total of others
+                                                        const currentOtherTotal = otherKeys.reduce((sum, key) => sum + oldMix[key], 0);
+
+                                                        const newMix = { ...oldMix, [cohort]: newValue };
+
+                                                        if (currentOtherTotal === 0) {
+                                                            // Edge case: Others were 0, distribute remainder equally
+                                                            if (targetRemainder > 0) {
+                                                                const split = targetRemainder / otherKeys.length;
+                                                                otherKeys.forEach(k => newMix[k] = split);
+                                                            }
+                                                        } else {
+                                                            // 3. Proportional reduction/increase
+                                                            // Formula: NewOther = OldOther * (TargetRemainder / OldOtherTotal)
+                                                            const ratio = targetRemainder / currentOtherTotal;
+                                                            otherKeys.forEach(k => {
+                                                                newMix[k] = oldMix[k] * ratio;
+                                                            });
+                                                        }
+
+                                                        // 4. Rounding cleanup to ensure exact 100 (assign dust to largest other)
+                                                        let roundedSum = 0;
+                                                        let maxOtherKey = otherKeys[0];
+
+                                                        // Round all except the main one we are dragging (keep that precise if possible, or integer)
+                                                        // actually slider is integer, so we treat 'newValue' as fixed
+                                                        otherKeys.forEach(k => {
+                                                            newMix[k] = Math.round(newMix[k]);
+                                                            if (newMix[k] > newMix[maxOtherKey]) maxOtherKey = k;
+                                                            roundedSum += newMix[k];
+                                                        });
+
+                                                        const finalDust = 100 - (newValue + roundedSum);
+                                                        // Add dust to the largest other to minimize visual jumpiness
+                                                        if (finalDust !== 0 && maxOtherKey) {
+                                                            newMix[maxOtherKey] += finalDust;
+                                                        }
+
                                                         return {
                                                             ...prev,
-                                                            customMix: { ...currentMix, [cohort]: val }
+                                                            customMix: newMix
                                                         };
                                                     })
                                                 }}
+                                                disabled={isAiStrategyOn}
                                                 style={{
                                                     width: '100%',
-                                                    accentColor: getColor(colorKey)
+                                                    accentColor: getColor(colorKey),
+                                                    opacity: isAiStrategyOn ? 0.4 : 1,
+                                                    cursor: isAiStrategyOn ? 'not-allowed' : 'pointer'
                                                 }}
                                             />
                                         </div>
                                     );
                                 })}
 
-                                {/* Total validation */}
-                                {(() => {
-                                    const primaryGoal = mapToPrimaryGoal(draftConfig.goal);
-                                    const mix = draftConfig.customMix || GOAL_COHORT_DISTRIBUTION[primaryGoal];
-                                    const total = Object.values(mix).reduce((a, b) => a + b, 0);
-                                    if (total !== 100) {
-                                        return (
-                                            <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', textAlign: 'center' }}>
-                                                Total: {total}% (Should be 100%)
-                                            </div>
-                                        );
-                                    }
-                                    return <div style={{ fontSize: '11px', color: '#10b981', marginTop: '4px', textAlign: 'center' }}>Total: 100%</div>;
-                                })()}
+                                {/* Always 100% confirmation */}
+                                <div style={{ fontSize: '11px', color: isAiStrategyOn ? '#10b981' : '#10b981', marginTop: '4px', textAlign: 'center' }}>
+                                    {isAiStrategyOn ? '✨ AI Optimized Balance: 100%' : 'Smart Balanced: 100%'}
+                                </div>
                             </div>
                         </div>
 
@@ -872,16 +959,8 @@ const ContentCalendarPage = () => {
                     border: '1px solid #27272a'
                 }}>
                     <div style={{ display: 'flex', gap: '12px', paddingLeft: '8px', overflowX: 'auto' }}>
-                        {/* Mix Indicators */}
-                        {mixKeys.map((key) => {
-                            const bg = getColor(key);
-                            return (
-                                <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '600', color: '#a1a1aa', padding: '4px 8px', borderRadius: '6px', backgroundColor: '#27272a' }}>
-                                    <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: bg }}></div>
-                                    {getLabel(key)}: {currentMix[key]}%
-                                </div>
-                            );
-                        })}
+                        <div />
+
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px' }}>
@@ -1016,6 +1095,7 @@ const ContentCalendarPage = () => {
                                 isGeneratingAll={isGeneratingAll}
                                 generatingPostIds={generatingPostIds}
                                 onRegenerateWeek={handleRegenerateWeek}
+                                onStop={handleStopGeneration}
                             />
                         ) : (
                             <ListView posts={normalizedPosts} onRegenerate={handleRegeneratePost} isGeneratingAll={isGeneratingAll} generatingPostIds={generatingPostIds} />
