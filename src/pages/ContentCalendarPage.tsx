@@ -145,7 +145,7 @@ const ContentCalendarPage = () => {
 
         if (cohortPoolShuffled.length === 0) {
             console.error("Critical: No requirements generated. Defaulting to Educational.");
-            cohortPoolShuffled.push({ cohort: 'Founders' }); // Fallback
+            cohortPoolShuffled.push({ cohort: 'Brand', platform: 'LinkedIn', format: 'Static' }); // Fallback to valid full UnscheduledRequirement
         }
 
         slots.forEach((slot) => {
@@ -192,14 +192,14 @@ const ContentCalendarPage = () => {
             scheduledPosts = platformRequirements.map((req, i) => ({
                 id: `fallback-${i}`,
                 date: new Date(start.getTime() + (i * 86400000)), // Approximate day increment
-                platform: req.platform as any,
-                cohort: req.cohort as any,
-                format: req.format as any,
-                funnel: 'Awareness',
-                boatPillar: 'Founders',
+                platform: req.platform,
+                cohort: req.cohort,
+                format: req.format,
+                funnel: 'Discovery', // Valid FunnelStage
+                boatPillar: 'Background', // Valid BOATPillar
                 coreMessage: 'Fallback content due to high volume',
                 hook: 'Simplified schedule'
-            } as ScheduledPost));
+            }));
         }
 
         // 6. Strict Platform Enforcement (Defensive)
