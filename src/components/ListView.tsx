@@ -124,6 +124,8 @@ const ListView = ({
             case 'LinkedIn': return '#0a66c2';
             case 'Instagram': return '#e1306c';
             case 'YouTube': return '#ff0000';
+            case 'Twitter':
+            case 'X': return '#ffffff'; // White for X in dark mode, or could use #1d9bf0 for blue bird legacy
             default: return '#71717a';
         }
     }

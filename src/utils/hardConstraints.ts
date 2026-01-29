@@ -13,6 +13,7 @@ export interface ScheduledPost {
     boatPillar?: BOATPillar;
     coreMessage?: string;
     postCommunication?: string;
+    event?: string; // e.g. "Valentine's Day"
 }
 
 /**

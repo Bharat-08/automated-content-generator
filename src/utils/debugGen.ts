@@ -44,6 +44,8 @@ const runDebug = () => {
     const scheduled = scheduleCalendar(start, end, platformRequirements, 'engagement', []);
 
     console.log(`Scheduled Posts Count: ${scheduled.length}`);
+    console.log(`Original Requirements: ${platformRequirements.length}`);
+    console.log(`Difference (Lost): ${platformRequirements.length - scheduled.length}`);
 
     // Analyze coverage
     const scheduledDates = scheduled.map(p => p.date.toISOString().split('T')[0]);
@@ -54,8 +56,16 @@ const runDebug = () => {
 
     const byDate: Record<string, number> = {};
     scheduledDates.forEach(d => byDate[d] = (byDate[d] || 0) + 1);
-    console.log("Posts per day (first 5):", Object.entries(byDate).slice(0, 5));
-    console.log("Posts per day (last 5):", Object.entries(byDate).slice(-5));
+
+    // Identify Empty Dates
+    const allDays = [];
+    const ptr = new Date(start);
+    while (ptr <= end) {
+        allDays.push(ptr.toISOString().split('T')[0]);
+        ptr.setDate(ptr.getDate() + 1);
+    }
+    const emptyDays = allDays.filter(d => !byDate[d]);
+    console.log("Empty Days:", emptyDays);
 };
 
 runDebug();

@@ -19,6 +19,7 @@ export interface SocialPost {
     format: ContentFormat;
     coreMessage: string;
     hook: string;
+    event?: string;
 }
 
 export const mockPosts: SocialPost[] = [

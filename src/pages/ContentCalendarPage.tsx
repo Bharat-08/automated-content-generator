@@ -110,7 +110,7 @@ const ContentCalendarPage = () => {
         }
         // Set end to end of day for inclusive comparison
         end.setHours(23, 59, 59, 999);
-        start.setHours(0, 0, 0, 0); // Start of day
+        start.setHours(12, 0, 0, 0); // Start at Noon to avoid timezone shifts during iteration
 
         // 2. Prepare Requirements for Scheduler
         const totalPostCount = slots.length;
@@ -143,6 +143,11 @@ const ContentCalendarPage = () => {
         let reqIdx = 0;
         const cohortPoolShuffled = [...requirements].sort(() => Math.random() - 0.5);
 
+        if (cohortPoolShuffled.length === 0) {
+            console.error("Critical: No requirements generated. Defaulting to Educational.");
+            cohortPoolShuffled.push({ cohort: 'Founders' }); // Fallback
+        }
+
         slots.forEach((slot) => {
             const req = cohortPoolShuffled[reqIdx % cohortPoolShuffled.length];
             platformRequirements.push({
@@ -170,19 +175,51 @@ const ContentCalendarPage = () => {
                 boatPillar: mapCohortToBoatPillar(p.pillar as any)
             }));
 
-        const scheduledPosts = scheduleCalendar(
-            start,
-            end,
-            platformRequirements,
-            primaryGoal,
-            history
-        );
+
+
+        let scheduledPosts: ScheduledPost[] = [];
+        try {
+            scheduledPosts = scheduleCalendar(
+                start,
+                end,
+                platformRequirements,
+                primaryGoal,
+                history
+            );
+        } catch (e) {
+            console.error("Scheduler crashed:", e);
+            // Fallback: simple mapping if intelligent scheduler fails
+            scheduledPosts = platformRequirements.map((req, i) => ({
+                id: `fallback-${i}`,
+                date: new Date(start.getTime() + (i * 86400000)), // Approximate day increment
+                platform: req.platform as any,
+                cohort: req.cohort as any,
+                format: req.format as any,
+                funnel: 'Awareness',
+                boatPillar: 'Founders',
+                coreMessage: 'Fallback content due to high volume',
+                hook: 'Simplified schedule'
+            } as ScheduledPost));
+        }
+
+        // 6. Strict Platform Enforcement (Defensive)
+        // Ensure no platforms slipped in that aren't in the config
+        const allowedPlatforms = new Set(config.brand.platforms);
+        scheduledPosts = scheduledPosts.filter(p => allowedPlatforms.has(p.platform));
 
         // 5. Convert back to SocialPost for the UI
         const finalPosts: SocialPost[] = scheduledPosts.map((p, idx) => {
-            const dateStr = p.date instanceof Date
-                ? p.date.toISOString().split('T')[0]
-                : new Date(p.date).toISOString().split('T')[0];
+            let dateStr = '';
+            try {
+                // Ensure p.date is valid before calling toISOString
+                const d = p.date instanceof Date ? p.date : new Date(p.date);
+                if (isNaN(d.getTime())) throw new Error('Invalid Date');
+                dateStr = d.toISOString().split('T')[0];
+            } catch (e) {
+                console.error("Critical Error: Invalid date encountered for post", p, e);
+                // Fallback to avoid crashing the UI
+                dateStr = new Date().toISOString().split('T')[0];
+            }
 
             return {
                 id: p.id || `new-${dateStr}-${p.platform}-${idx}`,
@@ -193,7 +230,8 @@ const ContentCalendarPage = () => {
                 pillar: p.cohort as any,
                 format: p.format as any,
                 coreMessage: p.coreMessage || '',
-                hook: p.postCommunication || ''
+                hook: p.postCommunication || '',
+                event: p.event
             };
         });
 
@@ -645,9 +683,11 @@ const ContentCalendarPage = () => {
 
             const postIds = postsToGenerate.map(p => p.id);
 
-            for (const postId of postIds) {
+            for (let i = 0; i < postIds.length; i++) {
+                const postId = postIds[i];
                 // Check for stop signal
                 if (stopGenerationRef.current) {
+                    console.log("Generaton stop signal received. Breaking loop.");
                     break;
                 }
 
@@ -658,8 +698,9 @@ const ContentCalendarPage = () => {
                 setGeneratingPostIds(prev => new Set(prev).add(postId));
 
                 try {
-                    await new Promise(resolve => setTimeout(resolve, 150));
+                    await new Promise(resolve => setTimeout(resolve, 50)); // Reduced delay
 
+                    console.log(`[Generator] Generating ${i + 1}/${postIds.length} (${postId})`);
                     const idea = await generateContentIdea(draftConfig.brand, draftConfig.goal as any, currentPost, draftConfig.performanceSignals || undefined);
 
                     if (idea.coreMessage === "Post idea unavailable") {
@@ -673,6 +714,7 @@ const ContentCalendarPage = () => {
                     ));
                     successCount++;
                 } catch (err) {
+                    console.warn(`[Generator] Failed for ${postId}`, err);
                     failCount++;
                 } finally {
                     setGeneratingPostIds(prev => {
@@ -681,6 +723,9 @@ const ContentCalendarPage = () => {
                         return next;
                     });
                 }
+
+                // Double check stop after await
+                if (stopGenerationRef.current) break;
             }
 
             if (stopGenerationRef.current) {
@@ -692,8 +737,10 @@ const ContentCalendarPage = () => {
             }
             setTimeout(() => setLastChanges([]), 5000);
         } catch (err) {
+            console.error("CRITICAL GENERATION FAILURE:", err);
             setError("Bulk generation encountered a critical error.");
         } finally {
+            console.log("[Generator] Loop finished. Clearing state.");
             setIsGeneratingAll(false);
             stopGenerationRef.current = false;
         }

@@ -16,6 +16,7 @@ export interface NormalizedPost {
     coreMessage: string;
     postCommunication: string;
     goalFocus: string;
+    event?: string;
 }
 
 /**
@@ -46,7 +47,8 @@ export const assembleFullPost = (
         format: scheduled.format,
         coreMessage: coreMessage,
         postCommunication: postCommunication,
-        goalFocus: goal.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+        goalFocus: goal.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        event: scheduled.event
     };
 };
 

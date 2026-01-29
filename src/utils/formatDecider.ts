@@ -59,7 +59,12 @@ export const decidePostFormat = (
     _signals?: PerformanceSignals
 ): PostFormat => {
     // 1. Get valid formats for this platform/goal
-    let validFormats = DEFAULT_GOAL_MAP[platform]?.[goal] || PLATFORM_FALLBACKS[platform];
+    let validFormats = DEFAULT_GOAL_MAP[platform]?.[goal] || PLATFORM_FALLBACKS[platform] || ['Static'];
+
+    // Safety check just in case
+    if (!validFormats || validFormats.length === 0) {
+        validFormats = ['Static'];
+    }
 
     // 2. Pick a random one for fresh shuffling
     const randomIndex = Math.floor(Math.random() * validFormats.length);

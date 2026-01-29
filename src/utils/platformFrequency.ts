@@ -28,12 +28,12 @@ const BASE_WEEKLY_FREQUENCY: Record<Platform, number> = {
 };
 
 const GOAL_BOOSTS: Record<PrimaryGoal, Partial<Record<Platform, number>>> = {
-    'engagement': { Instagram: 2, YouTube: 1 },
-    'followers-growth': { Instagram: 2, LinkedIn: 1 },
-    'traffic': { LinkedIn: 2, Instagram: 1 },
-    'lead-gen': { LinkedIn: 2, Instagram: 1 },
-    'sales': { LinkedIn: 2, Instagram: 1 },
-    'thought-leadership': { LinkedIn: 2, YouTube: 1 },
+    'engagement': { Instagram: 1, YouTube: 1 },
+    'followers-growth': { Instagram: 1, LinkedIn: 1 },
+    'traffic': { LinkedIn: 1, Instagram: 1 },
+    'lead-gen': { LinkedIn: 1, Instagram: 1 },
+    'sales': { LinkedIn: 1, Instagram: 1 },
+    'thought-leadership': { LinkedIn: 1, YouTube: 1 },
 };
 
 /**

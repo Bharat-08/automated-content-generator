@@ -116,6 +116,54 @@ export interface StrategySuggestion extends CohortMix {
     reasoning?: string;
 }
 
+
+// Helper for robust JSON parsing
+export const robustJSONParse = <T>(text: string): T => {
+    // 1. Try standard parse first
+    try {
+        return JSON.parse(text) as T;
+    } catch (e) {
+        // Continue to cleaning strategies
+    }
+
+    // 2. Extract from markdown code blocks if present
+    const jsonMatch = text.match(/```json\n?([\s\S]*?)\n?```/);
+    let cleanText = jsonMatch ? jsonMatch[1] : text;
+
+    // 3. Clean up common issues
+    cleanText = cleanText
+        .replace(/```json\n?|\n?```/g, '') // Remove ANY remaining code fences
+        .trim();
+
+    // 4. Try parsing cleaned text
+    try {
+        return JSON.parse(cleanText) as T;
+    } catch (e) {
+        // 5. Hard fixes for specific issues
+
+        // Fix: Escape unescaped backslashes that aren't part of a valid escape sequence
+        // This is tricky safely, but a common issue is "C:\Path" -> "C:\\Path"
+        // or "\text" for latex which acts as bad escape.
+        // Simple strategy: If it fails, try to look for specific common bad escapes if we could identify them.
+        // For now, let's try a regex approach to fix bad backslashes if strictly needed, 
+        // but often the issue is also unescaped double quotes within strings.
+
+        // Attempt to fix unescaped double quotes inside values? (Complex without a tokenizer)
+
+        console.warn("Standard JSON extraction failed. Attempting aggressive cleanup.", cleanText.substring(0, 100));
+
+        // Re-try after simple escape fix: replace backslash that is NOT followed by ["\\/bfnrtu] with double backslash
+        // This regex looks for backslash not followed by valid escape chars.
+        const fixedEscapes = cleanText.replace(/\\([^"\\\/bfnrtu])/g, '\\\\$1');
+
+        try {
+            return JSON.parse(fixedEscapes) as T;
+        } catch (e2) {
+            throw new Error(`Failed to parse JSON even after cleanup: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+};
+
 export const generateContentIdea = async (
     brand: BrandProfile,
     goal: ContentGoal,
@@ -137,6 +185,10 @@ export const generateContentIdea = async (
         Generate a "${post.format}" post for "${post.platform}".
         Cohort: ${post.pillar} (mapped to GTM Cohort)
         Funnel Stage: ${post.funnel}
+        Date: ${post.date}
+
+        CRITICAL INSTRUCTION: Check this date (${post.date}) against the calendar for the current year. If it coincides with a significant cultural event, festival (especially Indian festivals like Holi, Diwali, etc.), or global occasion (Valentine's Day, Women's Day, etc.), you MUST pivot the content topic to be relevant to that event while maintaining the brand's voice.
+        
         
         ${signals?.insightSummary ? `PERFORMANCE INSIGHT: ${signals.insightSummary}` : ''}
         ${instruction ? `USER INSTRUCTION: ${instruction}` : ''}
@@ -145,24 +197,32 @@ export const generateContentIdea = async (
         Return ONLY valid JSON.
         `;
 
-        const result = await model.generateContent({
+        // Create a timeout promise
+        const timeoutPromise = new Promise<any>((_, reject) =>
+            setTimeout(() => reject(new Error("Gemini API request timed out")), 8000)
+        );
+
+        const apiPromise = model.generateContent({
             contents: [
                 { role: 'user', parts: [{ text: GTM_SYSTEM_PROMPT + "\n" + prompt }] }
             ]
         });
 
-        const text = result.response.text();
+        // Race against timeout
+        const result = await Promise.race([apiPromise, timeoutPromise]);
 
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        const jsonString = jsonMatch ? jsonMatch[0] : text;
+        const text = result.response.text();
 
         let content: GeneratedContent;
         try {
-            content = JSON.parse(jsonString) as GeneratedContent;
+            content = robustJSONParse<GeneratedContent>(text);
         } catch (e) {
-            console.warn("Retrying JSON extraction from markdown...");
-            const cleaned = text.replace(/```json\n?|\n?```/g, '').trim();
-            content = JSON.parse(cleaned) as GeneratedContent;
+            console.error("JSON Parse Error Details:", e);
+            return {
+                cpc: ['Category'],
+                coreMessage: `(Error) Failed to parse AI response`,
+                postCommunication: "System error: The AI generated an invalid response format that could not be repaired."
+            } as GeneratedContent;
         }
 
         if (!content.cpc || !Array.isArray(content.cpc) || !validateCPC(content.cpc)) {
@@ -227,10 +287,14 @@ export const suggestStrategyMix = async (
         });
 
         const text = result.response.text();
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        const jsonString = jsonMatch ? jsonMatch[0] : text;
 
-        const suggestion = JSON.parse(jsonString) as StrategySuggestion;
+        let suggestion: StrategySuggestion;
+        try {
+            suggestion = robustJSONParse<StrategySuggestion>(text);
+        } catch (e) {
+            console.error("Strategy JSON Parse failed", e);
+            throw e; // Let main catch handle fallback
+        }
 
         const total = (suggestion.educational || 0) + (suggestion.product || 0) + (suggestion.value || 0) + (suggestion.brand || 0);
         if (total !== 100 && total > 0) {
@@ -253,3 +317,4 @@ export const suggestStrategyMix = async (
         };
     }
 };
+
