@@ -1,4 +1,4 @@
-import { type SocialPost, type ContentPillar } from '../data/mockPosts';
+import { type ContentPillar } from '../data/mockPosts';
 
 export type ContentGoal =
     | 'engagement'

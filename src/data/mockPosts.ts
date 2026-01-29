@@ -1,5 +1,4 @@
 import type { FunnelStage, ContentFormat } from '../utils/gtmLogic';
-import type { CohortType } from '../utils/goalToCohort';
 import type { Platform } from '../utils/platformFrequency';
 
 export type { Platform };
