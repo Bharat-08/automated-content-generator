@@ -1,9 +1,10 @@
 import { type Platform, type PostFormat } from './formatDecider';
 import { type CohortType } from './goalToCohort';
 
-import { type FunnelStage, type BOATPillar } from './postDerivations';
+import { type FunnelStage, type BOATPillar, mapCohortToBoatPillar } from './postDerivations';
 
 export interface ScheduledPost {
+    id?: string;
     cohort: CohortType;
     platform: Platform;
     format: PostFormat;
@@ -22,7 +23,7 @@ export interface ScheduledPost {
  * @returns boolean - True if all constraints are satisfied.
  */
 export const validateHardConstraints = (
-    candidate: { cohort: CohortType; platform: Platform; format: PostFormat; date: Date },
+    candidate: { cohort: CohortType; platform: Platform; format: PostFormat; date: Date; boatPillar?: BOATPillar },
     history: ScheduledPost[]
 ): boolean => {
     if (history.length === 0) return true;
@@ -30,21 +31,32 @@ export const validateHardConstraints = (
     const lastPost = history[0];
     const secondLastPost = history.length > 1 ? history[1] : null;
 
-    // 1. No consecutive Product posts
+    // 1. Specific rule: No consecutive Product posts (Stricter than generic)
     if (candidate.cohort === 'Product' && lastPost.cohort === 'Product') {
         return false;
     }
 
-    // 2. No more than 2 Educational posts in a row
+    // 2. Generic rule: No more than 2 identical Cohorts in a row
     if (
-        candidate.cohort === 'Educational' &&
-        lastPost.cohort === 'Educational' &&
-        secondLastPost?.cohort === 'Educational'
+        candidate.cohort === lastPost.cohort &&
+        secondLastPost?.cohort === candidate.cohort
     ) {
         return false;
     }
 
-    // 3. Same format max twice consecutively
+    // 3. Generic rule: No more than 2 identical Pillars in a row
+    const candidatePillar = candidate.boatPillar || mapCohortToBoatPillar(candidate.cohort);
+    const lastPostPillar = lastPost.boatPillar || mapCohortToBoatPillar(lastPost.cohort);
+    const secondLastPostPillar = secondLastPost ? (secondLastPost.boatPillar || mapCohortToBoatPillar(secondLastPost.cohort)) : null;
+
+    if (
+        candidatePillar === lastPostPillar &&
+        secondLastPostPillar === candidatePillar
+    ) {
+        return false;
+    }
+
+    // 4. Same format max twice consecutively
     if (
         candidate.format === lastPost.format &&
         secondLastPost?.format === candidate.format

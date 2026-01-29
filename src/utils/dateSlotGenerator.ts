@@ -10,6 +10,7 @@ export interface SlotConfig {
 }
 
 export interface GeneratedSlot {
+    id: string; // Added for stability
     date: Date;
     platform: Platform;
     format: 'video' | 'text' | 'image' | 'carousel'; // Placeholder, will be refined by formatDecider
@@ -51,6 +52,7 @@ export const generateDateSlots = (config: SlotConfig): GeneratedSlot[] => {
         const platform = platforms[platformIndex % platforms.length];
 
         slots.push({
+            id: `slot-${pointer.getTime()}-${platformIndex}`,
             date: new Date(pointer),
             platform: platform,
             format: 'text'

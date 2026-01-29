@@ -3,6 +3,7 @@ import { type NormalizedPost } from '../utils/normalizePost';
 
 interface CalendarGridProps {
     posts: NormalizedPost[];
+    isLoading?: boolean;
     isGeneratingAll?: boolean;
     generatingPostIds?: Set<string>;
     onRegenerateWeek?: (start: Date, end: Date) => void;
@@ -23,12 +24,15 @@ const PlatformIcon = ({ platform }: { platform: string }) => {
     }
 }
 
-const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateWeek, onStop }: CalendarGridProps) => {
+const CalendarGrid = ({ posts, isLoading, isGeneratingAll, generatingPostIds = new Set(), onRegenerateWeek, onStop }: CalendarGridProps) => {
     const [selectedPost, setSelectedPost] = useState<NormalizedPost | null>(null);
 
-    // Determine the months to render based on posts
     const monthsToRender = useMemo(() => {
-        if (posts.length === 0) return []; // No posts, no months
+        if (isLoading) {
+            const now = new Date();
+            return [{ year: now.getFullYear(), month: now.getMonth() }];
+        }
+        if (posts.length === 0) return [];
 
         const months = new Map<string, { year: number, month: number }>();
         posts.forEach(post => {
@@ -43,7 +47,7 @@ const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateW
             if (a.year !== b.year) return a.year - b.year;
             return a.month - b.month;
         });
-    }, [posts]);
+    }, [isLoading, posts]);
 
     const monthNames = [
         'January', 'February', 'March', 'April', 'May', 'June',
@@ -56,9 +60,8 @@ const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateW
             'Educational': '#3b82f6',
             'Product': '#10b981',
             'Brand': '#8b5cf6',
-            'Community': '#f59e0b'
+            'Value': '#f59e0b'
         };
-        // Return a muted version for background or border
         return map[cohort] || '#52525b';
     };
 
@@ -84,7 +87,7 @@ const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateW
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    borderRadius: '8px' // Optional, if container has radius
+                    borderRadius: '8px'
                 }}>
                     <div style={{
                         width: '48px',
@@ -98,8 +101,6 @@ const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateW
                     <div style={{ color: '#fff', fontWeight: '600', fontSize: '15px' }}>
                         Generating Content Strategy...
                     </div>
-                    {/* Removed specific model text as requested */}
-
                     {onStop && (
                         <button
                             onClick={onStop}
@@ -112,26 +113,12 @@ const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateW
                                 borderRadius: '6px',
                                 cursor: 'pointer',
                                 fontSize: '12px',
-                                fontWeight: '600',
-                                transition: 'all 0.2s'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
-                                e.currentTarget.style.transform = 'translateY(-1px)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
-                                e.currentTarget.style.transform = 'none';
+                                fontWeight: '600'
                             }}
                         >
                             Stop Generation
                         </button>
                     )}
-
-                    {/* Ensure keyframe style exists if not globally defined, mostly likely handled by previous duplicate style or global css */}
-                    <style>{`
-                        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-                    `}</style>
                 </div>
             )}
 
@@ -144,12 +131,8 @@ const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateW
                 for (let i = 0; i < startDay; i++) allDays.push(null);
                 for (let i = 1; i <= daysInMonth; i++) allDays.push(i);
 
-                // Pad end to complete the last week
-                while (allDays.length % 7 !== 0) {
-                    allDays.push(null);
-                }
+                while (allDays.length % 7 !== 0) allDays.push(null);
 
-                // Chunk into weeks
                 const weeks = [];
                 for (let i = 0; i < allDays.length; i += 7) {
                     weeks.push(allDays.slice(i, i + 7));
@@ -169,220 +152,71 @@ const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateW
                             <div style={{ height: '1px', flex: 1, backgroundColor: '#27272a' }}></div>
                         </header>
 
-                        {/* Grid Header */}
                         <div style={{
                             display: 'grid',
-                            gridTemplateColumns: '40px repeat(7, 1fr)', // Added column for actions
+                            gridTemplateColumns: '40px repeat(7, 1fr)',
                             backgroundColor: '#18181b',
                             border: '1px solid #27272a',
                             borderBottom: 'none',
                             borderTopLeftRadius: '8px',
                             borderTopRightRadius: '8px'
                         }}>
-                            {/* Empty corner for actions column */}
                             <div style={{ borderRight: '1px solid #27272a' }}></div>
-
-                            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
-                                <div key={day} style={{
-                                    padding: '12px 8px',
-                                    textAlign: 'center',
-                                    fontWeight: '700',
-                                    fontSize: '11px',
-                                    color: '#71717a',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.1em',
-                                    borderRight: '1px solid #27272a'
-                                }}>
-                                    {day}
-                                </div>
+                            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+                                <div key={day} style={{ padding: '12px 0', textAlign: 'center', fontWeight: '700', fontSize: '11px', color: '#71717a', textTransform: 'uppercase', borderRight: day === 'Sun' ? 'none' : '1px solid #27272a' }}>{day}</div>
                             ))}
                         </div>
 
-                        {/* Grid Body */}
-                        <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            border: '1px solid #27272a',
-                            borderBottomLeftRadius: '8px',
-                            borderBottomRightRadius: '8px',
-                            overflow: 'hidden',
-                        }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid #27272a', borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', overflow: 'hidden' }}>
                             {weeks.map((week, weekIndex) => {
-                                // Calculate week date range for regeneration
                                 const validDays = week.filter(d => d !== null) as number[];
-                                const weekStartDay = validDays[0];
-                                const weekEndDay = validDays[validDays.length - 1];
-
-                                const startDate = new Date(year, month, weekStartDay);
-                                const endDate = new Date(year, month, weekEndDay);
-                                // Set proper start/end times
-                                startDate.setHours(0, 0, 0, 0);
-                                endDate.setHours(23, 59, 59, 999);
+                                const startDate = validDays.length ? new Date(year, month, validDays[0], 0, 0, 0) : new Date();
+                                const endDate = validDays.length ? new Date(year, month, validDays[validDays.length - 1], 23, 59, 59) : new Date();
 
                                 return (
-                                    <div key={weekIndex} style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: '40px repeat(7, 1fr)',
-                                        borderTop: weekIndex > 0 ? '1px solid #27272a' : 'none',
-                                    }}>
-                                        {/* Action Column */}
-                                        <div style={{
-                                            borderRight: '1px solid #27272a',
-                                            backgroundColor: '#18181b',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center'
-                                        }}>
+                                    <div key={weekIndex} style={{ display: 'grid', gridTemplateColumns: '40px repeat(7, 1fr)', borderTop: weekIndex > 0 ? '1px solid #27272a' : 'none' }}>
+                                        <div style={{ borderRight: '1px solid #27272a', backgroundColor: '#18181b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             {onRegenerateWeek && validDays.length > 0 && (
-                                                <button
-                                                    onClick={() => onRegenerateWeek(startDate, endDate)}
-                                                    title="Regenerate this week"
-                                                    style={{
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        cursor: 'pointer',
-                                                        color: '#71717a',
-                                                        padding: '4px',
-                                                        display: 'flex',
-                                                        transition: 'color 0.2s'
-                                                    }}
-                                                    onMouseEnter={e => e.currentTarget.style.color = '#fff'}
-                                                    onMouseLeave={e => e.currentTarget.style.color = '#71717a'}
-                                                >
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                        <polyline points="23 4 23 10 17 10"></polyline>
-                                                        <polyline points="1 20 1 14 7 14"></polyline>
-                                                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                                                    </svg>
+                                                <button onClick={() => onRegenerateWeek(startDate, endDate)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a' }}>
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                                                 </button>
                                             )}
                                         </div>
-
-                                        {/* Days */}
                                         {week.map((day, dayIndex) => {
                                             const dailyPosts = day ? getPostsForDate(day) : [];
-                                            const isWeekend = (dayIndex + 1) % 7 === 6 || (dayIndex + 1) % 7 === 0;
-
+                                            const isWeekend = dayIndex >= 5;
                                             return (
-                                                <div
-                                                    key={dayIndex}
-                                                    style={{
-                                                        minHeight: '160px',
-                                                        maxHeight: '240px',
-                                                        backgroundColor: day ? (isWeekend ? '#121215' : '#09090b') : '#18181b',
-                                                        borderRight: dayIndex < 6 ? '1px solid #27272a' : 'none',
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        overflow: 'hidden',
-                                                        position: 'relative'
-                                                    }}
-                                                >
+                                                <div key={dayIndex} style={{ minHeight: '160px', backgroundColor: day ? (isWeekend ? '#121215' : '#09090b') : '#18181b', borderRight: dayIndex < 6 ? '1px solid #27272a' : 'none', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                                                     {day && (
                                                         <>
-                                                            {/* Date Number */}
-                                                            <div style={{
-                                                                padding: '8px 10px',
-                                                                textAlign: 'right',
-                                                                fontSize: '12px',
-                                                                fontWeight: '600',
-                                                                color: dailyPosts.length > 0 ? '#e4e4e7' : '#52525b',
-                                                                position: 'sticky',
-                                                                top: 0,
-                                                                backgroundColor: 'inherit',
-                                                                zIndex: 2
-                                                            }}>
-                                                                {day}
-                                                            </div>
-
-                                                            {/* Post Stack */}
-                                                            <div style={{
-                                                                padding: '0 6px 8px 6px',
-                                                                display: 'flex',
-                                                                flexDirection: 'column',
-                                                                gap: '6px',
-                                                                overflowY: 'auto',
-                                                                flex: 1,
-                                                                scrollbarWidth: 'none',
-                                                            }}>
-                                                                {dailyPosts.map((post) => (
-                                                                    <div
-                                                                        key={post.id}
-                                                                        style={{
-                                                                            backgroundColor: '#18181b',
-                                                                            borderRadius: '4px',
-                                                                            border: '1px solid #27272a',
-                                                                            transition: 'border-color 0.1s',
-                                                                            cursor: 'pointer',
-                                                                            display: 'flex',
-                                                                            flexDirection: 'column',
-                                                                            overflow: 'hidden',
-                                                                            position: 'relative', // Essential for overlay
-                                                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                                        }}
-                                                                        onClick={() => setSelectedPost(post)}
-                                                                        onMouseEnter={(e) => e.currentTarget.style.borderColor = '#52525b'}
-                                                                        onMouseLeave={(e) => e.currentTarget.style.borderColor = '#27272a'}
-                                                                    >
-                                                                        {/* Loading Overlay */}
-                                                                        {generatingPostIds?.has(post.id) && (
-                                                                            <div style={{
-                                                                                position: 'absolute',
-                                                                                inset: 0,
-                                                                                backgroundColor: 'rgba(24, 24, 27, 0.8)',
-                                                                                backdropFilter: 'blur(2px)',
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                justifyContent: 'center',
-                                                                                zIndex: 20
-                                                                            }}>
-                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="3" style={{ animation: 'spin 1s linear infinite' }}>
-                                                                                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                                                                                </svg>
-                                                                                <style>{`
-                                                                                    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-                                                                                `}</style>
-                                                                            </div>
-                                                                        )}
-                                                                        {/* Card Header */}
-                                                                        <div style={{
-                                                                            padding: '6px 8px',
-                                                                            borderBottom: '1px solid #27272a',
-                                                                            backgroundColor: '#202023',
-                                                                            display: 'flex',
-                                                                            justifyContent: 'space-between',
-                                                                            alignItems: 'center'
-                                                                        }}>
-                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            <div style={{ padding: '8px 10px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: dailyPosts.length ? '#e4e4e7' : '#52525b' }}>{day}</div>
+                                                            <div style={{ padding: '0 6px 8px 6px', display: 'flex', flexDirection: 'column', gap: '6px', overflowY: 'auto', flex: 1 }}>
+                                                                {isLoading ? (
+                                                                    [1, 2].map(i => (
+                                                                        <div key={i} style={{ height: '50px', backgroundColor: 'rgba(39, 39, 42, 0.4)', borderRadius: '6px', animation: 'pulse 1.5s infinite' }} />
+                                                                    ))
+                                                                ) : (
+                                                                    dailyPosts.map(post => (
+                                                                        <div key={post.id} onClick={() => setSelectedPost(post)} style={{ backgroundColor: '#18181b', borderRadius: '4px', border: '1px solid #27272a', cursor: 'pointer', position: 'relative', boxShadow: '0 2px 4px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+                                                                            {generatingPostIds.has(post.id) && (
+                                                                                <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(24, 24, 27, 0.8)', zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="3" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                                                                                </div>
+                                                                            )}
+                                                                            <div style={{ padding: '4px 6px', borderBottom: '1px solid #27272a', backgroundColor: '#202023', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                                                 <PlatformIcon platform={post.platform} />
-                                                                                <span style={{ fontSize: '9px', fontWeight: '700', color: '#a1a1aa', textTransform: 'uppercase' }}>
-                                                                                    {post.format ? post.format.slice(0, 4) : 'TXT'}
-                                                                                </span>
+                                                                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: getCohortColor(post.cohort) }} />
                                                                             </div>
-                                                                            <div
-                                                                                style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: getCohortColor(post.cohort) }}
-                                                                                title={`${post.cohort} • ${post.funnel}`}
-                                                                            />
-                                                                        </div>
-
-                                                                        {/* Card Body */}
-                                                                        <div style={{ padding: '6px 8px' }}>
-                                                                            <div style={{
-                                                                                fontSize: '10px',
-                                                                                color: '#d4d4d8',
-                                                                                lineHeight: '1.4',
-                                                                                display: '-webkit-box',
-                                                                                WebkitLineClamp: 2,
-                                                                                WebkitBoxOrient: 'vertical',
-                                                                                overflow: 'hidden'
-                                                                            }} title={post.coreMessage}>
-                                                                                {post.coreMessage || <span style={{ opacity: 0.5 }}>Generating...</span>}
-                                                                            </div>
-                                                                            <div style={{ marginTop: '4px', fontSize: '9px', color: '#71717a' }}>
-                                                                                {post.funnel}
+                                                                            <div style={{ padding: '6px', fontSize: '10px', color: '#d4d4d8', lineHeight: '1.4' }}>
+                                                                                {generatingPostIds.has(post.id) ? (
+                                                                                    <span style={{ opacity: 0.7 }}>Generating...</span>
+                                                                                ) : (
+                                                                                    post.coreMessage || <span style={{ opacity: 0.5 }}>Pending idea...</span>
+                                                                                )}
                                                                             </div>
                                                                         </div>
-                                                                    </div>
-                                                                ))}
+                                                                    ))
+                                                                )}
                                                             </div>
                                                         </>
                                                     )}
@@ -396,150 +230,55 @@ const CalendarGrid = ({ posts, isGeneratingAll, generatingPostIds, onRegenerateW
                     </div>
                 );
             })}
-            {/* Post Detail Modal */}
+
             {selectedPost && (
-                <div
-                    style={{
-                        position: 'fixed',
-                        inset: 0,
-                        backgroundColor: 'rgba(0,0,0,0.85)',
-                        backdropFilter: 'blur(8px)',
-                        zIndex: 1000,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: '24px'
-                    }}
-                    onClick={() => setSelectedPost(null)}
-                >
-                    <div
-                        style={{
-                            width: '100%',
-                            maxWidth: '600px',
-                            backgroundColor: '#18181b',
-                            borderRadius: '16px',
-                            border: '1px solid #27272a',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            maxHeight: '90vh',
-                            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-                            overflow: 'hidden'
-                        }}
-                        onClick={e => e.stopPropagation()}
-                    >
-                        {/* Modal Header */}
+                <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }} onClick={() => setSelectedPost(null)}>
+                    <div style={{ width: '100%', maxWidth: '600px', backgroundColor: '#18181b', borderRadius: '16px', border: '1px solid #27272a', display: 'flex', flexDirection: 'column', maxHeight: '90vh', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
                         <div style={{ padding: '20px 24px', borderBottom: '1px solid #27272a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#202023' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{
-                                    padding: '8px',
-                                    backgroundColor: 'rgba(255,255,255,0.05)',
-                                    borderRadius: '8px',
-                                    display: 'flex'
-                                }}>
-                                    <PlatformIcon platform={selectedPost.platform} />
-                                </div>
+                                <PlatformIcon platform={selectedPost.platform} />
                                 <div>
                                     <h2 style={{ fontSize: '16px', fontWeight: '800', margin: 0, color: '#fff' }}>Post Details</h2>
-                                    <p style={{ fontSize: '12px', color: '#71717a', margin: '2px 0 0 0' }}>{selectedPost.date} • {selectedPost.platform} {selectedPost.format}</ p>
+                                    <p style={{ fontSize: '12px', color: '#71717a', margin: '2px 0 0 0' }}>{selectedPost.date} • {selectedPost.platform} {selectedPost.format}</p>
                                 </div>
                             </div>
-                            <button
-                                onClick={() => setSelectedPost(null)}
-                                style={{
-                                    background: '#27272a',
-                                    border: 'none',
-                                    color: '#a1a1aa',
-                                    cursor: 'pointer',
-                                    width: '32px',
-                                    height: '32px',
-                                    borderRadius: '50%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    transition: 'all 0.2s'
-                                }}
-                                onMouseEnter={e => e.currentTarget.style.color = '#fff'}
-                            >
-                                ✕
-                            </button>
+                            <button onClick={() => setSelectedPost(null)} style={{ background: '#27272a', border: 'none', color: '#a1a1aa', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%' }}>✕</button>
                         </div>
-
-                        {/* Modal Content */}
-                        <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                            {/* Metadata Row */}
+                        <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <div style={{ backgroundColor: '#202023', padding: '12px', borderRadius: '8px', border: '1px solid #27272a' }}>
-                                    <label style={{ fontSize: '10px', fontWeight: '700', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cohort</label>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: getCohortColor(selectedPost.cohort) }}></div>
-                                        <span style={{ fontSize: '13px', fontWeight: '600', color: '#e4e4e7' }}>{selectedPost.cohort}</span>
-                                    </div>
+                                    <label style={{ fontSize: '10px', color: '#71717a', textTransform: 'uppercase' }}>Cohort</label>
+                                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#e4e4e7', marginTop: '4px' }}>{selectedPost.cohort}</div>
                                 </div>
                                 <div style={{ backgroundColor: '#202023', padding: '12px', borderRadius: '8px', border: '1px solid #27272a' }}>
-                                    <label style={{ fontSize: '10px', fontWeight: '700', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Funnel Stage</label>
+                                    <label style={{ fontSize: '10px', color: '#71717a', textTransform: 'uppercase' }}>Funnel</label>
                                     <div style={{ fontSize: '13px', fontWeight: '600', color: '#e4e4e7', marginTop: '4px' }}>{selectedPost.funnel}</div>
                                 </div>
                             </div>
-
-                            {/* Core Message */}
                             <div>
-                                <label style={{ fontSize: '10px', fontWeight: '700', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Core Message</label>
-                                <div style={{
-                                    marginTop: '8px',
-                                    padding: '16px',
-                                    backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                                    color: '#93c5fd',
-                                    borderRadius: '12px',
-                                    fontSize: '14px',
-                                    lineHeight: '1.6',
-                                    fontWeight: '500',
-                                    border: '1px solid rgba(59, 130, 246, 0.1)'
-                                }}>
+                                <label style={{ fontSize: '10px', color: '#71717a', textTransform: 'uppercase' }}>Core Message</label>
+                                <div style={{ marginTop: '8px', padding: '16px', backgroundColor: 'rgba(59, 130, 246, 0.05)', color: '#93c5fd', borderRadius: '12px', fontSize: '14px', border: '1px solid rgba(59, 130, 246, 0.1)' }}>
                                     {selectedPost.coreMessage || "Generating insight..."}
                                 </div>
                             </div>
-
-                            {/* Communication / Structure */}
                             <div>
-                                <label style={{ fontSize: '10px', fontWeight: '700', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Detailed Structure</label>
-                                <div style={{
-                                    marginTop: '8px',
-                                    padding: '16px',
-                                    backgroundColor: '#09090b',
-                                    color: '#d4d4d8',
-                                    borderRadius: '12px',
-                                    fontSize: '13px',
-                                    lineHeight: '1.8',
-                                    whiteSpace: 'pre-wrap',
-                                    border: '1px solid #27272a',
-                                    minHeight: '100px'
-                                }}>
-                                    {selectedPost.postCommunication || "Waiting for AI content generation..."}
+                                <label style={{ fontSize: '10px', color: '#71717a', textTransform: 'uppercase' }}>Structure</label>
+                                <div style={{ marginTop: '8px', padding: '16px', backgroundColor: '#09090b', color: '#d4d4d8', borderRadius: '12px', fontSize: '13px', border: '1px solid #27272a', minHeight: '80px', whiteSpace: 'pre-wrap' }}>
+                                    {selectedPost.postCommunication || "Waiting for content..."}
                                 </div>
                             </div>
                         </div>
-
-                        {/* Modal Footer */}
-                        <div style={{ padding: '16px 24px', backgroundColor: '#202023', borderTop: '1px solid #27272a', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                            <button
-                                onClick={() => setSelectedPost(null)}
-                                style={{
-                                    padding: '10px 20px',
-                                    backgroundColor: '#fff',
-                                    color: '#000',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    fontSize: '13px',
-                                    fontWeight: '700'
-                                }}
-                            >
-                                Done
-                            </button>
+                        <div style={{ padding: '16px 24px', backgroundColor: '#202023', borderTop: '1px solid #27272a', display: 'flex', justifyContent: 'flex-end' }}>
+                            <button onClick={() => setSelectedPost(null)} style={{ padding: '8px 16px', backgroundColor: '#fff', color: '#000', border: 'none', borderRadius: '6px', fontWeight: '700', cursor: 'pointer' }}>Done</button>
                         </div>
                     </div>
                 </div>
             )}
+
+            <style>{`
+                @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+                @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+            `}</style>
         </div>
     );
 };

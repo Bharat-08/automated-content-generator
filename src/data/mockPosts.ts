@@ -1,11 +1,12 @@
 import type { FunnelStage, ContentFormat } from '../utils/gtmLogic';
 import type { CohortType } from '../utils/goalToCohort';
+import type { Platform } from '../utils/platformFrequency';
 
-export type Platform = 'LinkedIn' | 'Instagram' | 'Twitter';
+export type { Platform };
 export type AudienceSegment = 'Founders' | 'Creators' | 'Marketers'; // Renamed from Cohort to avoid confusion
 
 // ContentPillar is now effectively CohortType in the new GTM logic
-export type ContentPillar = CohortType;
+export type ContentPillar = 'Educational' | 'Product' | 'Brand' | 'Value';
 
 export type { FunnelStage, ContentFormat };
 
@@ -47,11 +48,11 @@ export const mockPosts: SocialPost[] = [
     {
         id: '3',
         date: '2026-02-03',
-        platform: 'Twitter', // Note: Twitter not in GTM formats but keeping for mock
+        platform: 'YouTube',
         funnel: 'Consideration',
         cohort: 'Marketers',
         pillar: 'Product',
-        format: 'Static', // Text -> Static (close enough) or need to allow Text? GTM formats are Reel, Carousel, Live, Static. Twitter Text is Static.
+        format: 'Static',
         coreMessage: 'Join the masterclass to learn advanced analytics.',
         hook: 'Marketing is math. If you want to master the numbers, join us this Friday.',
     },
@@ -61,8 +62,8 @@ export const mockPosts: SocialPost[] = [
         platform: 'LinkedIn',
         funnel: 'Discovery',
         cohort: 'Founders',
-        pillar: 'Community',
-        format: 'Static', // Image -> Static
+        pillar: 'Value',
+        format: 'Static',
         coreMessage: 'Resilience is the most important trait for a founder.',
         hook: 'I wanted to quit 5 times last year. Here is why I didn\'t.',
     },
@@ -80,7 +81,7 @@ export const mockPosts: SocialPost[] = [
     {
         id: '6',
         date: '2026-02-06',
-        platform: 'Twitter',
+        platform: 'YouTube',
         funnel: 'Consideration',
         cohort: 'Founders',
         pillar: 'Educational',
@@ -105,7 +106,7 @@ export const mockPosts: SocialPost[] = [
         platform: 'Instagram',
         funnel: 'Discovery',
         cohort: 'Creators',
-        pillar: 'Community',
+        pillar: 'Value',
         format: 'Reel',
         coreMessage: 'You are just one piece of content away.',
         hook: 'It took me 100 bad videos to make 1 good one. Keep going.',

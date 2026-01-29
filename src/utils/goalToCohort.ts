@@ -1,35 +1,23 @@
 import { type PrimaryGoal } from './platformFrequency';
 
-export type CohortType = 'Educational' | 'Product' | 'Brand' | 'Community';
+export type CohortType = 'Educational' | 'Product' | 'Brand' | 'Value';
 
 export interface GoalToCohortInput {
     primaryGoal: PrimaryGoal;
     timeframeWeeks: number;
     totalPostCount: number;
-    customMix?: Record<CohortType, number>; // Added optional custom mix
+    customMix?: Record<CohortType, number>; // Re-added custom mix
 }
 
 export type CohortCounts = Record<CohortType, number>;
 
 export const GOAL_COHORT_DISTRIBUTION: Record<PrimaryGoal, Record<CohortType, number>> = {
-    'Engagement/Awareness': {
-        Educational: 20,
-        Product: 10,
-        Brand: 40,
-        Community: 30,
-    },
-    'Leads/Sales': {
-        Educational: 40,
-        Product: 25,
-        Brand: 15,
-        Community: 20,
-    },
-    'Thought Leadership': {
-        Educational: 60,
-        Product: 5,
-        Brand: 10,
-        Community: 25,
-    },
+    'engagement': { Educational: 20, Product: 10, Brand: 40, Value: 30, },
+    'followers-growth': { Educational: 10, Product: 5, Brand: 50, Value: 35, },
+    'traffic': { Educational: 50, Product: 20, Brand: 15, Value: 15, },
+    'lead-gen': { Educational: 40, Product: 25, Brand: 15, Value: 20, },
+    'sales': { Educational: 30, Product: 45, Brand: 10, Value: 15, },
+    'thought-leadership': { Educational: 60, Product: 5, Brand: 10, Value: 25, },
 };
 
 /**
@@ -47,7 +35,7 @@ export const calculateGoalToCohort = (
     // Use custom mix if provided, otherwise fallback to goal-based default
     const distribution = customMix || GOAL_COHORT_DISTRIBUTION[primaryGoal];
 
-    const cohorts = ['Educational', 'Product', 'Brand', 'Community'] as CohortType[];
+    const cohorts = ['Educational', 'Product', 'Brand', 'Value'] as CohortType[];
 
     // 1. Calculate raw counts and fractional parts
     const countsWithRemainder = cohorts.map(cohort => {

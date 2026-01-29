@@ -13,68 +13,55 @@ export interface PerformanceFormatData {
     score: number;
 }
 
-const DEFAULT_GOAL_MAP: Record<Platform, Partial<Record<PrimaryGoal, PostFormat>>> = {
+const DEFAULT_GOAL_MAP: Record<Platform, Partial<Record<PrimaryGoal, PostFormat[]>>> = {
     Instagram: {
-        'Engagement/Awareness': 'Reel',
-        'Leads/Sales': 'Carousel',
-        'Thought Leadership': 'Carousel',
+        'engagement': ['Reel', 'Static'],
+        'followers-growth': ['Reel', 'Carousel'],
+        'traffic': ['Carousel', 'Static', 'Reel'],
+        'lead-gen': ['Carousel', 'Reel', 'Static'],
+        'sales': ['Carousel', 'Reel', 'Static'],
+        'thought-leadership': ['Carousel', 'Live', 'Reel'],
     },
     LinkedIn: {
-        'Engagement/Awareness': 'Static',
-        'Leads/Sales': 'Carousel',
-        'Thought Leadership': 'Carousel', // Document -> Carousel
+        'engagement': ['Static', 'Carousel'],
+        'followers-growth': ['Static', 'Live'],
+        'traffic': ['Carousel', 'Static'],
+        'lead-gen': ['Carousel', 'Static', 'Live'],
+        'sales': ['Carousel', 'Static', 'Live'],
+        'thought-leadership': ['Carousel', 'Static', 'Live'],
     },
     YouTube: {
-        'Engagement/Awareness': 'Reel', // Short -> Reel
-        'Leads/Sales': 'Live', // Video -> Live (Trust, Objections)
-        'Thought Leadership': 'Live',
+        'engagement': ['Reel', 'Static'],
+        'followers-growth': ['Reel', 'Live'],
+        'traffic': ['Static', 'Carousel'],
+        'lead-gen': ['Live', 'Static', 'Carousel'],
+        'sales': ['Live', 'Static', 'Carousel'],
+        'thought-leadership': ['Live', 'Static', 'Carousel'],
     },
 };
 
-const PLATFORM_FALLBACKS: Record<Platform, PostFormat> = {
-    Instagram: 'Static',
-    LinkedIn: 'Static',
-    YouTube: 'Live',
+const PLATFORM_FALLBACKS: Record<Platform, PostFormat[]> = {
+    Instagram: ['Static', 'Reel', 'Carousel'],
+    LinkedIn: ['Static', 'Carousel'],
+    YouTube: ['Live', 'Static'],
 };
 
 import { type PerformanceSignals } from './performanceAnalyzer';
 
 /**
  * Decides the best post format based on platform, goal, and optional performance signals.
- * 
- * @param platform - Target platform.
- * @param cohort - Content cohort.
- * @param goal - Primary goal.
- * @param signals - Optional historical performance signals.
- * @returns The selected PostFormat.
+ * Now picks randomly from valid formats for fresh shuffling on every hit.
  */
 export const decidePostFormat = (
     platform: Platform,
     _cohort: CohortType,
     goal: PrimaryGoal,
-    signals?: PerformanceSignals
+    _signals?: PerformanceSignals
 ): PostFormat => {
-    // 1. Check performance signals first for winning formats
-    if (signals && signals.winningFormats.length > 0) {
-        // Find if any winning format is a valid option for this platform's goal
-        // (Simple check: if it's "Carousel" and we're on Instagram/LinkedIn, we use it)
-        const topFormat = signals.winningFormats[0]; // Take the #1 winner
+    // 1. Get valid formats for this platform/goal
+    let validFormats = DEFAULT_GOAL_MAP[platform]?.[goal] || PLATFORM_FALLBACKS[platform];
 
-        if (platform === 'Instagram') {
-            if (topFormat === 'Reel' || topFormat === 'Carousel' || topFormat === 'Image') return topFormat as PostFormat;
-        } else if (platform === 'LinkedIn') {
-            if (topFormat === 'Image' || topFormat === 'Document' || topFormat === 'Text') return topFormat as PostFormat;
-        } else if (platform === 'YouTube') {
-            if (topFormat === 'Short' || topFormat === 'Video') return topFormat as PostFormat;
-        }
-    }
-
-    // 2. Use goal-based default mapping
-    const goalFormat = DEFAULT_GOAL_MAP[platform]?.[goal];
-    if (goalFormat) {
-        return goalFormat;
-    }
-
-    // 3. Fallback to platform default
-    return PLATFORM_FALLBACKS[platform];
+    // 2. Pick a random one for fresh shuffling
+    const randomIndex = Math.floor(Math.random() * validFormats.length);
+    return validFormats[randomIndex];
 };

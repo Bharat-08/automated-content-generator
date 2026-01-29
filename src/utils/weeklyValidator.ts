@@ -7,7 +7,7 @@ import { type CohortType } from './goalToCohort';
  * Rules for every 7-day window:
  * - At least 1 Education
  * - At least 1 Inspiration (Awareness)
- * - At least 1 Personal (Community)
+ * - At least 1 Personal (Value)
  * 
  * If imbalance is detected, it attempts to swap with the nearest valid candidate elsewhere.
  */
@@ -16,14 +16,14 @@ export const validateWeeklyBalance = (posts: ScheduledPost[]): ScheduledPost[] =
     const n = result.length;
     if (n < 7) return result;
 
-    const cohorts: CohortType[] = ['Educational', 'Community', 'Brand'];
+    const cohorts: CohortType[] = ['Educational', 'Value', 'Brand'];
 
     // Slide window
     for (let i = 0; i <= n - 7; i++) {
         const window = result.slice(i, i + 7);
         const counts: Record<CohortType, number> = {
             Educational: 0,
-            Community: 0,
+            Value: 0,
             Brand: 0,
             Product: 0,
         };

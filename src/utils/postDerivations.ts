@@ -14,7 +14,7 @@ export const mapCohortToFunnel = (cohort: CohortType): FunnelStage => {
             return 'Consideration';
         case 'Brand':
             return 'Discovery';
-        case 'Community':
+        case 'Value':
             return 'Discovery';
         default:
             return 'Discovery';
@@ -33,7 +33,7 @@ export const mapCohortToBoatPillar = (cohort: CohortType): BOATPillar => {
             return 'Offerings';
         case 'Brand':
             return 'Background'; // Brand philosophy often aligns with Background/Category evolution
-        case 'Community':
+        case 'Value':
             return 'Trust';
         default:
             return 'Trust';

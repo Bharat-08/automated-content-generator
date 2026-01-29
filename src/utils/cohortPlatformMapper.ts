@@ -28,7 +28,7 @@ const FIT_SCORES: Record<CohortType, Record<Platform, number>> = {
         LinkedIn: 3,
         YouTube: 2,
     },
-    Community: {
+    Value: {
         Instagram: 5,
         YouTube: 4,
         LinkedIn: 2,

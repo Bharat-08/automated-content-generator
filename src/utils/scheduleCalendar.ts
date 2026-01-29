@@ -27,10 +27,18 @@ export const scheduleCalendar = (
     initialHistory: ScheduledPost[] = []
 ): ScheduledPost[] => {
     const scheduledPosts = [...initialHistory];
+    // SHUFFLE requirements to ensure visible diversity from the start
     const remainingRequirements = [...requirements];
+    for (let i = remainingRequirements.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [remainingRequirements[i], remainingRequirements[j]] = [remainingRequirements[j], remainingRequirements[i]];
+    }
 
     // Clone start date to avoid mutation
     const currentDate = new Date(startDate);
+
+    // Track last assigned to penalize in scoring
+    let lastAssigned: ScheduledPost | undefined = initialHistory.length > 0 ? initialHistory[initialHistory.length - 1] : undefined;
 
     // Iterate through each day in the range
     while (currentDate <= endDate) {
@@ -69,7 +77,12 @@ export const scheduleCalendar = (
                         date: new Date(currentDate)
                     };
                     const history = [...scheduledPosts].reverse();
-                    const score = scoreCandidate(candidatePost, { primaryGoal: goal, recentHistory: history });
+                    // Pass lastAssigned for diversity penalties
+                    const score = scoreCandidate(candidatePost, {
+                        primaryGoal: goal,
+                        recentHistory: history,
+                        lastPost: lastAssigned
+                    });
                     return { ...candidate, score };
                 });
 
@@ -78,14 +91,16 @@ export const scheduleCalendar = (
                 const bestCandidate = scoredCandidates[0];
 
                 // 5. Assign post to date with derivations
-                scheduledPosts.push({
+                const newPost: ScheduledPost = {
                     cohort: bestCandidate.cohort,
                     platform: bestCandidate.platform,
                     format: bestCandidate.format,
                     date: new Date(currentDate),
                     funnel: mapCohortToFunnel(bestCandidate.cohort),
                     boatPillar: mapCohortToBoatPillar(bestCandidate.cohort)
-                });
+                };
+                scheduledPosts.push(newPost);
+                lastAssigned = newPost;
 
                 // 6. Update remaining counts
                 remainingRequirements.splice(bestCandidate.index, 1);

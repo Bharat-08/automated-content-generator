@@ -1,9 +1,12 @@
 export type Platform = 'Instagram' | 'LinkedIn' | 'YouTube';
 
 export type PrimaryGoal =
-    | 'Engagement/Awareness'
-    | 'Leads/Sales'
-    | 'Thought Leadership';
+    | 'engagement'
+    | 'followers-growth'
+    | 'traffic'
+    | 'lead-gen'
+    | 'sales'
+    | 'thought-leadership';
 
 export interface FrequencyInput {
     activePlatforms: Platform[];
@@ -25,18 +28,12 @@ const BASE_WEEKLY_FREQUENCY: Record<Platform, number> = {
 };
 
 const GOAL_BOOSTS: Record<PrimaryGoal, Partial<Record<Platform, number>>> = {
-    'Engagement/Awareness': {
-        Instagram: 2,
-        YouTube: 1,
-    },
-    'Leads/Sales': {
-        LinkedIn: 2,
-        Instagram: 1,
-    },
-    'Thought Leadership': {
-        LinkedIn: 2,
-        YouTube: 1,
-    },
+    'engagement': { Instagram: 2, YouTube: 1 },
+    'followers-growth': { Instagram: 2, LinkedIn: 1 },
+    'traffic': { LinkedIn: 2, Instagram: 1 },
+    'lead-gen': { LinkedIn: 2, Instagram: 1 },
+    'sales': { LinkedIn: 2, Instagram: 1 },
+    'thought-leadership': { LinkedIn: 2, YouTube: 1 },
 };
 
 /**

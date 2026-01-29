@@ -17,14 +17,14 @@ function App() {
     console.log('--- Platform Frequency Logic Verification ---');
     const frequencyResults = calculatePlatformFrequency({
       activePlatforms: ['Instagram', 'LinkedIn', 'YouTube'],
-      primaryGoal: 'Engagement/Awareness',
+      primaryGoal: 'engagement',
       timeframeWeeks: 4,
     });
     console.log('Frequency Test (Engagement, 4 weeks):', frequencyResults);
 
     const totalPosts = frequencyResults.reduce((acc, res) => acc + res.totalPostCount, 0);
     const cohortResults = calculateGoalToCohort({
-      primaryGoal: 'Engagement/Awareness',
+      primaryGoal: 'engagement',
       timeframeWeeks: 4,
       totalPostCount: totalPosts,
     });
@@ -37,7 +37,7 @@ function App() {
 
     const finalPosts = assignmentResults.map(post => ({
       ...post,
-      format: decidePostFormat(post.platform, post.cohort, 'Engagement/Awareness')
+      format: decidePostFormat(post.platform, post.cohort, 'engagement')
     }));
 
     console.log('Final Post Requirements (with Formats):', finalPosts);
@@ -45,7 +45,7 @@ function App() {
     // Constraint Verification
     const history: ScheduledPost[] = [
       { cohort: 'Educational', platform: 'LinkedIn', format: 'Carousel', date: new Date('2026-01-27') },
-      { cohort: 'Educational', platform: 'YouTube', format: 'Live', date: new Date('2026-01-26') },
+      { cohort: 'Value', platform: 'YouTube', format: 'Live', date: new Date('2026-01-26') },
     ];
 
     const invalidCandidate = {
@@ -69,14 +69,14 @@ function App() {
 
     // Scoring Verification
     const highAlignmentScore = scoreCandidate(
-      { cohort: 'Community', platform: 'Instagram', format: 'Reel', date: new Date('2026-02-01') }, // Sunday
-      { primaryGoal: 'Engagement/Awareness', recentHistory: history }
+      { cohort: 'Value', platform: 'Instagram', format: 'Reel', date: new Date('2026-02-01') }, // Sunday
+      { primaryGoal: 'engagement', recentHistory: history }
     );
     console.log('Scoring Test (High Alignment, Variety, Weekend Community):', highAlignmentScore);
 
     const lowAlignmentScore = scoreCandidate(
       { cohort: 'Product', platform: 'LinkedIn', format: 'Static', date: new Date('2026-02-01') }, // Sunday
-      { primaryGoal: 'Thought Leadership', recentHistory: history }
+      { primaryGoal: 'thought-leadership', recentHistory: history }
     );
     console.log('Scoring Test (Low Alignment, Product on Sunday):', lowAlignmentScore);
 
@@ -84,7 +84,7 @@ function App() {
     console.log('\n--- Full End-to-End Scheduling Loop Verification ---');
     const startDate = new Date('2026-02-01');
     const endDate = new Date('2026-02-14'); // 2 week range
-    const goal: PrimaryGoal = 'Thought Leadership';
+    const goal: PrimaryGoal = 'thought-leadership';
 
     // 1. Get Requirements
     const freqInput = {
@@ -119,14 +119,14 @@ function App() {
       imbalancedHistory.push({ cohort: 'Educational', platform: 'LinkedIn', format: 'Carousel', date });
     }
     // Add missing requirements later
-    imbalancedHistory.push({ cohort: 'Community', platform: 'Instagram', format: 'Reel', date: new Date('2026-03-08') });
+    imbalancedHistory.push({ cohort: 'Value', platform: 'Instagram', format: 'Reel', date: new Date('2026-03-08') });
     imbalancedHistory.push({ cohort: 'Brand', platform: 'Instagram', format: 'Static', date: new Date('2026-03-09') });
 
     console.log('Before Rebalancing (7 days Educational):');
     imbalancedHistory.slice(0, 7).forEach(p => console.log(p.date.toDateString(), p.cohort));
 
     const rebalanced = validateWeeklyBalance(imbalancedHistory);
-    console.log('After Rebalancing (Should have Community/Brand moved up):');
+    console.log('After Rebalancing (Should have Value/Brand moved up):');
     rebalanced.slice(0, 7).forEach(p => console.log(p.date.toDateString(), p.cohort));
 
     // User-Triggered Rebalance Verification
@@ -140,7 +140,7 @@ function App() {
     const triggeredRebalance = triggerRebalance(
       finalCalendar,
       cutoffDate,
-      'Leads/Sales',
+      'lead-gen',
       newRequirements
     );
 

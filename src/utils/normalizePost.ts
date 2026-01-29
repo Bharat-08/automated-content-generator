@@ -37,7 +37,7 @@ export const assembleFullPost = (
     }
 
     return {
-        id: `post-${scheduled.date.getTime()}-${scheduled.platform}-${scheduled.cohort}`,
+        id: scheduled.id || `post-${scheduled.date.getTime()}-${scheduled.platform}-${scheduled.cohort}`,
         date: scheduled.date.toISOString().split('T')[0],
         platform: scheduled.platform,
         funnel: scheduled.funnel || mapCohortToFunnel(scheduled.cohort),

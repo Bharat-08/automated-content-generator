@@ -64,7 +64,7 @@ All product-related content must be classified under one BOAT pillar:
 - Brand: Philosophy, POVs, reframes
 - Educational: Science, explainers, how-it-works
 - Product: Features, design, use cases
-- Community: Stories, testimonials, empathy
+- Value: Stories, testimonials, empathy, value-driven insights
 
 6. FORMAT LOGIC
 - Reel: Reach, emotion, relatability (Scene-by-scene flow)
@@ -94,7 +94,7 @@ You are a Growth Marketing Strategist. Recommend a Content Mix distribution (per
 The distribution must be across 4 cohorts:
 1. educational: Science, guides, how-to, education.
 2. product: Features, benefits, trials, purchase flow.
-3. community: Reviews, testimonials, shared values, user stories.
+3. value: Reviews, testimonials, shared values, user stories.
 4. brand: Philosophy, point of view, industry reframes, USP focus.
 
 RULES:
@@ -120,7 +120,8 @@ export const generateContentIdea = async (
     brand: BrandProfile,
     goal: ContentGoal,
     post: SocialPost,
-    signals?: PerformanceSignals
+    signals?: PerformanceSignals,
+    instruction?: string
 ): Promise<GeneratedContent> => {
     try {
         const prompt = `
@@ -138,6 +139,7 @@ export const generateContentIdea = async (
         Funnel Stage: ${post.funnel}
         
         ${signals?.insightSummary ? `PERFORMANCE INSIGHT: ${signals.insightSummary}` : ''}
+        ${instruction ? `USER INSTRUCTION: ${instruction}` : ''}
 
         Ensure the content strictly follows the CPC and BOAT frameworks defined in the system prompt.
         Return ONLY valid JSON.
@@ -230,13 +232,13 @@ export const suggestStrategyMix = async (
 
         const suggestion = JSON.parse(jsonString) as StrategySuggestion;
 
-        const total = (suggestion.educational || 0) + (suggestion.product || 0) + (suggestion.community || 0) + (suggestion.brand || 0);
+        const total = (suggestion.educational || 0) + (suggestion.product || 0) + (suggestion.value || 0) + (suggestion.brand || 0);
         if (total !== 100 && total > 0) {
             const ratio = 100 / total;
             suggestion.educational = Math.round((suggestion.educational || 0) * ratio);
             suggestion.product = Math.round((suggestion.product || 0) * ratio);
-            suggestion.community = Math.round((suggestion.community || 0) * ratio);
-            suggestion.brand = 100 - (suggestion.educational + suggestion.product + suggestion.community);
+            suggestion.value = Math.round((suggestion.value || 0) * ratio);
+            suggestion.brand = 100 - (suggestion.educational + suggestion.product + suggestion.value);
         }
 
         return suggestion;
@@ -245,7 +247,7 @@ export const suggestStrategyMix = async (
         return {
             educational: 25,
             product: 25,
-            community: 25,
+            value: 25,
             brand: 25,
             reasoning: "Fallback to default distribution due to error."
         };

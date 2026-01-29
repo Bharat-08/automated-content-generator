@@ -4,16 +4,20 @@ import ListView from '../components/ListView';
 import { mockPosts, type SocialPost } from '../data/mockPosts';
 import { generateDateSlots } from '../utils/dateSlotGenerator';
 import { mapCohortToFunnel } from '../utils/postDerivations';
-import { type ContentGoal, getRecommendedMix, type CohortMix } from '../utils/cohortLogic';
-import { rebalanceCalendar } from '../utils/rebalanceCalendar';
-import { type BrandProfile, generateContentIdea, suggestStrategyMix } from '../utils/aiGenerator';
+import { type ContentGoal } from '../utils/cohortLogic';
+import { type BrandProfile, generateContentIdea } from '../utils/aiGenerator';
 import { parseCSV } from '../utils/csvParser';
-import { normalizeCalendar } from '../utils/normalizePost';
+import { normalizeCalendar, type NormalizedPost } from '../utils/normalizePost';
 import { type PrimaryGoal } from '../utils/platformFrequency';
-import { calculateGoalToCohort, type CohortType, GOAL_COHORT_DISTRIBUTION } from '../utils/goalToCohort';
+import { calculateGoalToCohort, type CohortType } from '../utils/goalToCohort';
 import { decidePostFormat } from '../utils/formatDecider';
 import { analyzePerformance, type PerformanceSignals } from '../utils/performanceAnalyzer';
 import { exportContent } from '../utils/exportCsv';
+import RegenerateWeekModal from '../components/RegenerateWeekModal';
+import RegeneratePostModal from '../components/RegeneratePostModal';
+import { scheduleCalendar, type UnscheduledRequirement } from '../utils/scheduleCalendar';
+import { type ScheduledPost } from '../utils/hardConstraints';
+import { mapCohortToBoatPillar } from '../utils/postDerivations';
 
 // Simple CSS Spinner component to avoid external assets
 const Spinner = ({ size = 16, color = 'white' }) => (
@@ -44,8 +48,8 @@ interface StrategyConfig {
     planningMonth: string; // YYYY-MM
     performanceSignals: PerformanceSignals | null;
     uploadStatus: { filename: string; count: number } | null;
-    customMix?: Record<CohortType, number>; // Added for manual rebalancing
 }
+
 
 const INITIAL_CONFIG: StrategyConfig = {
     brand: {
@@ -63,7 +67,6 @@ const INITIAL_CONFIG: StrategyConfig = {
     planningMonth: '2026-02',
     performanceSignals: null,
     uploadStatus: null
-    // customMix defaults to undefined
 };
 
 const ContentCalendarPage = () => {
@@ -75,11 +78,8 @@ const ContentCalendarPage = () => {
     const [draftConfig, setDraftConfig] = useState<StrategyConfig>(INITIAL_CONFIG);
     const [activeConfig, setActiveConfig] = useState<StrategyConfig>(INITIAL_CONFIG);
 
-    // Goal mapping helper
     const mapToPrimaryGoal = (goal: ContentGoal): PrimaryGoal => {
-        if (goal === 'engagement' || goal === 'followers-growth') return 'Engagement/Awareness';
-        if (goal === 'thought-leadership') return 'Thought Leadership';
-        return 'Leads/Sales';
+        return goal as PrimaryGoal;
     };
 
     const syncCalendarToConfig = (config: StrategyConfig, currentPosts: SocialPost[]) => {
@@ -112,138 +112,335 @@ const ContentCalendarPage = () => {
         end.setHours(23, 59, 59, 999);
         start.setHours(0, 0, 0, 0); // Start of day
 
-        // 2. Calculate Cohort Distribution
+        // 2. Prepare Requirements for Scheduler
         const totalPostCount = slots.length;
         const timeframeWeeks = config.timeframe === '2-weeks' ? 2 : config.timeframe === '1-month' ? 4 : 12;
 
         const cohortCounts = calculateGoalToCohort({
             primaryGoal,
             timeframeWeeks,
-            totalPostCount,
-            customMix: config.customMix // Pass custom mix
+            totalPostCount
         });
 
-        // 3. Create pool
-        const cohortPool: CohortType[] = [];
+        const requirements: UnscheduledRequirement[] = [];
         Object.entries(cohortCounts).forEach(([cohort, count]) => {
-            for (let i = 0; i < count; i++) cohortPool.push(cohort as CohortType);
+            for (let i = 0; i < count; i++) {
+                requirements.push({
+                    cohort: cohort as CohortType,
+                    // Format will be decided INSIDE scheduleCalendar or during assignment
+                    // For now, satisfy the interface by pre-shuffling formats in the requirements pool
+                    platform: 'LinkedIn', // Placeholder, scheduleCalendar will match platforms
+                    format: decidePostFormat('LinkedIn', cohort as CohortType, primaryGoal)
+                });
+            }
         });
 
-        // 4. Assign Cohorts & Formats
-        const newRangePosts: SocialPost[] = slots.map((slot, idx) => {
-            const cohort = cohortPool[idx % cohortPool.length];
-            const format = decidePostFormat(slot.platform, cohort, primaryGoal, config.performanceSignals || undefined);
-            const dateStr = slot.date.toISOString().split('T')[0];
+        // 3. Re-map requirements to satisfy the scheduler's per-platform needs
+        // The scheduler needs requirements that are specifically mapped to platforms
+        // if we want to ensure exact counts.
+        const platformRequirements: UnscheduledRequirement[] = [];
+        // Distribute cohorts across platforms as requirements
+        let reqIdx = 0;
+        const cohortPoolShuffled = [...requirements].sort(() => Math.random() - 0.5);
 
-            // Check for existing manual content to preserve WITHIN this new range
-            const existing = currentPosts.find(old =>
-                old.date === dateStr &&
-                old.platform === slot.platform
-            );
+        slots.forEach((slot) => {
+            const req = cohortPoolShuffled[reqIdx % cohortPoolShuffled.length];
+            platformRequirements.push({
+                cohort: req.cohort,
+                platform: slot.platform,
+                format: decidePostFormat(slot.platform, req.cohort, primaryGoal)
+            });
+            reqIdx++;
+        });
+
+        // 4. Run Scheduler
+        // IMPORTANT: history MUST have Date objects, not strings, or scheduler crashes on .toISOString()
+        const history: ScheduledPost[] = currentPosts
+            .filter(p => {
+                const d = new Date(p.date + 'T12:00:00');
+                return d < start || d > end;
+            })
+            .map(p => ({
+                id: p.id,
+                cohort: p.pillar as any,
+                platform: p.platform as any,
+                format: p.format as any,
+                date: new Date(p.date + 'T12:00:00'),
+                funnel: p.funnel as any,
+                boatPillar: mapCohortToBoatPillar(p.pillar as any)
+            }));
+
+        const scheduledPosts = scheduleCalendar(
+            start,
+            end,
+            platformRequirements,
+            primaryGoal,
+            history
+        );
+
+        // 5. Convert back to SocialPost for the UI
+        const finalPosts: SocialPost[] = scheduledPosts.map((p, idx) => {
+            const dateStr = p.date instanceof Date
+                ? p.date.toISOString().split('T')[0]
+                : new Date(p.date).toISOString().split('T')[0];
 
             return {
-                id: existing?.id || `new-${dateStr}-${slot.platform}-${idx}`,
+                id: p.id || `new-${dateStr}-${p.platform}-${idx}`,
                 date: dateStr,
-                platform: slot.platform as any,
-                funnel: mapCohortToFunnel(cohort),
+                platform: p.platform as any,
+                funnel: p.funnel as any || mapCohortToFunnel(p.cohort),
                 cohort: 'Founders',
-                pillar: cohort as any,
-                format: format as any,
-                coreMessage: existing?.coreMessage || '',
-                hook: existing?.hook || ''
+                pillar: p.cohort as any,
+                format: p.format as any,
+                coreMessage: p.coreMessage || '',
+                hook: p.postCommunication || ''
             };
         });
 
-        // 5. MERGE: Keep posts outside the generated range, replace those inside
-        const preservedPosts = currentPosts.filter(p => {
-            const pDate = new Date(p.date + 'T12:00:00');
-            return pDate < start || pDate > end;
-        });
-
-        // Combine and sort
-        return [...preservedPosts, ...newRangePosts].sort((a, b) =>
-            new Date(a.date).getTime() - new Date(b.date).getTime()
-        );
+        return finalPosts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     };
 
-    // New: Regenerate specific week
-    const handleRegenerateWeek = (start: Date, end: Date) => {
-        const config = activeConfig; // Use valid config
+    // New: Regenerate specific week with options from Modal
+    const handleConfirmRegeneration = async (data: { mix: Record<CohortType, number>; instruction: string }) => {
+        if (!regenerateRange) return;
+
+        setRegenerateModalOpen(false); // Close modal
+
+        const rangeStart = regenerateRange.start;
+        const rangeEnd = regenerateRange.end;
+        const startDateStr = rangeStart.toISOString().split('T')[0];
+        const endDateStr = rangeEnd.toISOString().split('T')[0];
+
+        const config = activeConfig;
         const primaryGoal = mapToPrimaryGoal(config.goal);
 
-        // 1. Generate ALL slots (to ensure we get the right ones for this timeframe logic)
-        const allSlots = generateDateSlots({
-            planningMonth: config.planningMonth,
-            timeframe: config.timeframe,
-            primaryGoal,
-            activePlatforms: config.brand.platforms as any || [],
-            performanceSignals: config.performanceSignals || undefined
-        });
+        setLastChanges(['Regenerating week...']);
 
-        // 2. Filter for slots in range
-        const weekSlots = allSlots.filter(s => s.date >= start && s.date <= end);
+        try {
+            // STRATEGY:
+            // 1. Identify "Slots" to fill.
+            //    Priority A: Use EXISTING posts in this week (maintains schedule).
+            //    Priority B: Generate new slots using settings (if week matches plan).
+            //    Priority C: Fallback to 1 post/day (if everything else fails).
 
-        if (weekSlots.length === 0) return;
+            const existingWeekPosts = posts.filter(p => p.date >= startDateStr && p.date <= endDateStr);
 
-        // 3. Calculate Cohort Distribution for this specific batch
-        const totalPostCount = weekSlots.length;
-        // For a single week, we treat it as 1 week timeframe
-        const cohortCounts = calculateGoalToCohort({
-            primaryGoal,
-            timeframeWeeks: 1,
-            totalPostCount,
-            customMix: config.customMix
-        });
+            let targetSlots: { date: Date; platform: any }[] = [];
 
-        // 4. Create pool
-        const cohortPool: CohortType[] = [];
-        Object.entries(cohortCounts).forEach(([cohort, count]) => {
-            for (let i = 0; i < count; i++) cohortPool.push(cohort as CohortType);
-        });
+            if (existingWeekPosts.length > 0) {
+                targetSlots = existingWeekPosts.map(p => ({
+                    date: new Date(p.date), // This might set time to 00:00 locally
+                    platform: p.platform
+                }));
+            } else {
+                // Try generator
+                const allSlots = generateDateSlots({
+                    planningMonth: config.planningMonth,
+                    timeframe: config.timeframe,
+                    primaryGoal,
+                    activePlatforms: config.brand.platforms as any || [],
+                    performanceSignals: config.performanceSignals || undefined
+                });
+                targetSlots = allSlots.filter(s => s.date >= rangeStart && s.date <= rangeEnd);
+            }
 
-        // 5. Assign
-        const newWeekPosts: SocialPost[] = weekSlots.map((slot, idx) => {
-            const cohort = cohortPool[idx % cohortPool.length];
-            const format = decidePostFormat(slot.platform, cohort, primaryGoal, config.performanceSignals || undefined);
-            const dateStr = slot.date.toISOString().split('T')[0];
+            // Fallback: If still 0, ensure we produce something (1/day)
+            if (targetSlots.length === 0) {
+                const ptr = new Date(rangeStart);
+                const platforms = config.brand.platforms as any || ['LinkedIn'];
+                let pIdx = 0;
+                // Safety break to prevent infinite loops if dates broken
+                let safety = 0;
+                while (ptr <= rangeEnd && safety < 14) {
+                    targetSlots.push({
+                        date: new Date(ptr),
+                        platform: platforms[pIdx % platforms.length]
+                    });
+                    ptr.setDate(ptr.getDate() + 1);
+                    pIdx++;
+                    safety++;
+                }
+            }
 
-            return {
-                id: `regen-${dateStr}-${slot.platform}-${Date.now()}-${idx}`, // Force new ID
-                date: dateStr,
-                platform: slot.platform as any,
-                funnel: mapCohortToFunnel(cohort),
-                cohort: 'Founders', // Static context
-                pillar: cohort as any,
-                format: format as any,
-                coreMessage: '', // AI will fill
-                hook: ''
-            };
-        });
+            if (targetSlots.length === 0) {
+                // If STILL empty (e.g. invalid range), generic error
+                throw new Error("Invalid date range for regeneration");
+            }
 
-        // 6. Merge: Keep posts outside range, add new ones
-        const startStr = start.toISOString().split('T')[0];
-        const endStr = end.toISOString().split('T')[0];
+            // 3. Prepare Requirements Pool
+            const cohortCounts = calculateGoalToCohort({
+                primaryGoal,
+                timeframeWeeks: 1, // Specific week
+                totalPostCount: targetSlots.length,
+                customMix: data.mix
+            });
 
-        setPosts(prev => {
-            // Need to be careful with string comparison if timestamps differ, but dateStr is YYYY-MM-DD
-            const outside = prev.filter(p => p.date < startStr || p.date > endStr);
-            return [...outside, ...newWeekPosts].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        });
+            const platformRequirements: UnscheduledRequirement[] = [];
 
-        setLastChanges([`Regenerated content for week of ${startStr}`]);
+            // Distribute as requirements pool
+            const requirements: { cohort: CohortType }[] = [];
+            Object.entries(cohortCounts).forEach(([cohort, count]) => {
+                for (let i = 0; i < count; i++) requirements.push({ cohort: cohort as CohortType });
+            });
+
+            // Shuffle pool
+            const shuffledPool = [...requirements].sort(() => Math.random() - 0.5);
+
+            targetSlots.forEach((slot, idx) => {
+                const req = shuffledPool[idx % shuffledPool.length];
+                platformRequirements.push({
+                    cohort: req.cohort,
+                    platform: slot.platform,
+                    format: decidePostFormat(slot.platform, req.cohort, primaryGoal)
+                });
+            });
+
+            // 4. Run Scheduler for replacement week
+            // IMPORTANT: history MUST have Date objects, not strings
+            const history: ScheduledPost[] = posts
+                .filter(p => p.date < startDateStr || p.date > endDateStr)
+                .map(p => ({
+                    id: p.id,
+                    cohort: p.pillar as any,
+                    platform: p.platform as any,
+                    format: p.format as any,
+                    date: new Date(p.date + 'T12:00:00'),
+                    funnel: p.funnel as any,
+                    boatPillar: mapCohortToBoatPillar(p.pillar as any)
+                }));
+
+            const scheduledPostsInWeek = scheduleCalendar(
+                rangeStart,
+                rangeEnd,
+                platformRequirements,
+                primaryGoal,
+                history
+            ).filter(p => p.date >= rangeStart && p.date <= rangeEnd);
+
+            // 5. Convert to SocialPost format for UI
+            const newWeekPosts: SocialPost[] = scheduledPostsInWeek.map((p, idx) => {
+                const dateStr = p.date instanceof Date
+                    ? p.date.toISOString().split('T')[0]
+                    : new Date(p.date).toISOString().split('T')[0];
+                return {
+                    id: p.id || `regen-${dateStr}-${p.platform}-${Date.now()}-${idx}`,
+                    date: dateStr,
+                    platform: p.platform as any,
+                    funnel: p.funnel as any || mapCohortToFunnel(p.cohort),
+                    cohort: 'Founders', // This should probably be p.cohort or derived from it
+                    pillar: p.cohort as any,
+                    format: p.format as any,
+                    coreMessage: '', // AI will fill
+                    hook: ''
+                };
+            });
+
+            // 6. Generate Content (AI)
+            const generatedPosts: SocialPost[] = [];
+
+            // Update UI with loading skeletons
+            const newIds = new Set(newWeekPosts.map(p => p.id));
+            setGeneratingPostIds(prev => {
+                const next = new Set(prev);
+                newIds.forEach(id => next.add(id));
+                return next;
+            });
+
+            // Keep reference to preserved posts
+            const preservedPosts = posts.filter(p => p.date < startDateStr || p.date > endDateStr);
+            setPosts([...preservedPosts, ...newWeekPosts].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+
+            for (const post of newWeekPosts) {
+                try {
+                    const idea = await generateContentIdea(
+                        config.brand,
+                        config.goal as any,
+                        post,
+                        config.performanceSignals || undefined,
+                        data.instruction
+                    );
+
+                    generatedPosts.push({
+                        ...post,
+                        coreMessage: idea.coreMessage,
+                        hook: idea.postCommunication
+                    });
+                } catch (e) {
+                    generatedPosts.push({
+                        ...post,
+                        coreMessage: "Generation failed",
+                        hook: "Please try regenerating individually."
+                    });
+                }
+            }
+
+            // 7. Final Update
+            setPosts([...preservedPosts, ...generatedPosts].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+            setLastChanges([`Regenerated week of ${startDateStr}`]);
+
+
+        } catch (err) {
+            console.error(err);
+            setError("Failed to regenerate week.");
+        } finally {
+            setGeneratingPostIds(() => {
+                // In reality we should remove `newIds`, but local scope closed.
+                // Clearing all is OK for this prototype interaction.
+                return new Set();
+            });
+        }
     };
 
-    // Initialize on mount
+    const handleUpdatePost = (id: string, updates: Partial<NormalizedPost>) => {
+        setStagedEdits(prev => {
+            const current = prev[id] || {};
+            return {
+                ...prev,
+                [id]: {
+                    ...current,
+                    // Map NormalizedPost fields back to SocialPost fields
+                    ...(updates.coreMessage !== undefined ? { coreMessage: updates.coreMessage } : {}),
+                    ...(updates.postCommunication !== undefined ? { hook: updates.postCommunication } : {})
+                }
+            };
+        });
+    };
+
+    const handleSaveChanges = async () => {
+        if (Object.keys(stagedEdits).length === 0) return;
+
+        setIsSavingChanges(true);
+        setError(null);
+
+        try {
+            // Simulate API call (PATCH /api/schedules)
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            setPosts(prev => prev.map(p => {
+                if (stagedEdits[p.id]) {
+                    return { ...p, ...stagedEdits[p.id] };
+                }
+                return p;
+            }));
+
+            setStagedEdits({});
+            setLastChanges(['All changes saved successfully.']);
+            setTimeout(() => setLastChanges([]), 3000);
+        } catch (err) {
+            setError('Failed to save changes. Please try again.');
+        } finally {
+            setIsSavingChanges(false);
+        }
+    };
+
     useEffect(() => {
         // Initial load: don't pass mockPosts if we want to simulate empty start, 
         // but for dev we load mockPosts. 
-        // We sync mockPosts to ensure they align with default config but respecting preservation??
-        // actually for init we probably just want to setPosts(mockPosts) or run a sync.
-        // Current logic: syncCalendarToConfig(INITIAL_CONFIG, mockPosts). 
-        // This will now preserve specific mock posts outside feb?
-        // Mock posts dates need to be checked.
         const initial = syncCalendarToConfig(INITIAL_CONFIG, mockPosts);
         setPosts(initial);
+
+        // Data is now loaded (locally in this prototype)
+        setIsFetchingData(false);
     }, []);
 
     // dirty check
@@ -253,40 +450,31 @@ const ContentCalendarPage = () => {
 
     // UI States
     const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+    const [isFetchingData, setIsFetchingData] = useState(true); // New: Tracks initial data load
     const [isExporting, setIsExporting] = useState(false);
     const [showExportMenu, setShowExportMenu] = useState(false);
     const [generatingPostIds, setGeneratingPostIds] = useState<Set<string>>(new Set());
     const [error, setError] = useState<string | null>(null);
-    const [isAiStrategyOn, setIsAiStrategyOn] = useState(true);
-    const [isSuggesting, setIsSuggesting] = useState(false);
+    const [showPerformanceTooltip, setShowPerformanceTooltip] = useState(false);
 
-    // Auto-suggest strategy when goals or signals change
-    useEffect(() => {
-        if (!isAiStrategyOn) return;
+    // Regeneration Modal State
+    const [regenerateModalOpen, setRegenerateModalOpen] = useState(false);
+    const [regenerateRange, setRegenerateRange] = useState<{ start: Date; end: Date } | null>(null);
+    const [isRegeneratePostModalOpen, setIsRegeneratePostModalOpen] = useState(false);
 
-        const suggest = async () => {
-            setIsSuggesting(true);
-            try {
-                const suggestion = await suggestStrategyMix(draftConfig.brand, draftConfig.performanceSignals || undefined);
-                setDraftConfig(prev => ({
-                    ...prev,
-                    customMix: {
-                        Educational: suggestion.educational,
-                        Product: suggestion.product,
-                        Brand: suggestion.brand,
-                        Community: suggestion.community
-                    }
-                }));
-            } catch (err) {
-                console.error("Auto-strategy suggestion failed", err);
-            } finally {
-                setIsSuggesting(false);
-            }
-        };
+    const [selectedPostForRegen, setSelectedPostForRegen] = useState<SocialPost | null>(null);
 
-        const timeout = setTimeout(suggest, 1000); // Debounce
-        return () => clearTimeout(timeout);
-    }, [draftConfig.brand.goals, draftConfig.brand.usp, draftConfig.brand.audience, draftConfig.performanceSignals, isAiStrategyOn]);
+    // Editing State
+    const [stagedEdits, setStagedEdits] = useState<Record<string, Partial<SocialPost>>>({});
+    const [isSavingChanges, setIsSavingChanges] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+
+    // Initial open modal handler
+    const onRegenerateWeekRequest = (start: Date, end: Date) => {
+        setRegenerateRange({ start, end });
+        setRegenerateModalOpen(true);
+    };
+
 
     // Basic Validation
     const validationErrors = useMemo(() => {
@@ -342,21 +530,23 @@ const ContentCalendarPage = () => {
     }, [posts, activeConfig.timeframe, activeConfig.planningMonth]);
 
 
-    const recommendedMix = useMemo(() => getRecommendedMix(activeConfig.goal), [activeConfig.goal]);
-
     const normalizedPosts = useMemo(() => {
         // Map SocialPost (current state) to ScheduledPost-like structure for normalization
-        const scheduledLike = filteredPosts.map(p => ({
-            cohort: p.pillar, // In mock data pillar is what we call cohort in automation
-            platform: p.platform as any,
-            format: p.format as any,
-            date: new Date(p.date),
-            coreMessage: p.coreMessage,
-            postCommunication: p.hook // In existing state, 'hook' holds the postCommunication text
-        }));
+        const scheduledLike = filteredPosts.map(p => {
+            // Apply staged edits for the UI only
+            const edits = stagedEdits[p.id] || {};
+            return {
+                cohort: p.pillar,
+                platform: p.platform as any,
+                format: p.format as any,
+                date: new Date(p.date),
+                coreMessage: edits.coreMessage !== undefined ? edits.coreMessage : p.coreMessage,
+                postCommunication: edits.hook !== undefined ? edits.hook : p.hook
+            };
+        });
 
         return normalizeCalendar(scheduledLike, activeConfig.brand, activeConfig.goal as any);
-    }, [filteredPosts, activeConfig.brand, activeConfig.goal]);
+    }, [filteredPosts, activeConfig.brand, activeConfig.goal, stagedEdits]);
 
     const handleApplyChanges = () => {
         setActiveConfig(draftConfig);
@@ -366,28 +556,27 @@ const ContentCalendarPage = () => {
         setTimeout(() => setLastChanges([]), 5000);
     };
 
-    const handleRebalance = () => {
-        const { rebalancedPosts, changes } = rebalanceCalendar(posts, recommendedMix);
-        setPosts(rebalancedPosts);
-        setLastChanges(changes);
-        setTimeout(() => setLastChanges([]), 5000);
-    };
+    const handleConfirmPostRegeneration = async (instruction: string) => {
+        if (!selectedPostForRegen) return;
 
-    const handleRegeneratePost = async (postId: string) => {
+        const postId = selectedPostForRegen.id;
+        setIsRegeneratePostModalOpen(false); // Close immediately
         setError(null);
 
-        // Find the post in latest state to ensure we have current metadata
-        const targetPost = posts.find(p => p.id === postId);
-        if (!targetPost) return;
-
         setGeneratingPostIds(prev => new Set(prev).add(postId));
+        setLastChanges([`Regenerating post for ${selectedPostForRegen.platform}...`]);
 
         try {
             // Small delay for UI feedback
             await new Promise(resolve => setTimeout(resolve, 600));
 
-            // Use the primary goal from config, but AI will see all brand.goals
-            const idea = await generateContentIdea(activeConfig.brand, activeConfig.goal as any, targetPost, activeConfig.performanceSignals || undefined);
+            const idea = await generateContentIdea(
+                activeConfig.brand,
+                activeConfig.goal as any,
+                selectedPostForRegen,
+                activeConfig.performanceSignals || undefined,
+                instruction
+            );
 
             if (idea.coreMessage === "Post idea unavailable") {
                 throw new Error("AI failed to generate a valid idea.");
@@ -399,6 +588,8 @@ const ContentCalendarPage = () => {
                     ? { ...p, coreMessage: idea.coreMessage, hook: idea.postCommunication }
                     : p
             ));
+            setLastChanges([`Regenerated post for ${selectedPostForRegen.platform}`]);
+
         } catch (err: any) {
             setError(err.message || "Failed to regenerate post.");
         } finally {
@@ -407,6 +598,7 @@ const ContentCalendarPage = () => {
                 next.delete(postId);
                 return next;
             });
+            setSelectedPostForRegen(null);
         }
     };
 
@@ -507,17 +699,17 @@ const ContentCalendarPage = () => {
         }
     };
 
-    const handleExport = async (format: 'csv' | 'xlsx') => {
+    const handleExport = async (format: 'csv' | 'xlsx' = 'csv') => {
         if (normalizedPosts.length === 0 || isExporting) return;
 
         setIsExporting(true);
-        setShowExportMenu(false); // Close menu
+        setShowExportMenu(false);
         try {
-            // Subtle UI delay for feedback
             await new Promise(resolve => setTimeout(resolve, 800));
-            const [year, month] = activeConfig.planningMonth.split('-');
-            const filename = `content-calendar-${month}-${year}`; // Extension added by util
-            exportContent(normalizedPosts, format, filename);
+            const [year] = activeConfig.planningMonth.split('-');
+            const monthName = new Date(activeConfig.planningMonth + '-01').toLocaleDateString('en-US', { month: 'long' }).toLowerCase();
+            const filename = `content_schedule_${monthName}_${year}`;
+            exportContent(normalizedPosts, filename, format);
         } finally {
             setIsExporting(false);
         }
@@ -553,14 +745,6 @@ const ContentCalendarPage = () => {
     };
 
 
-    const getColor = (key: keyof CohortMix) => {
-        switch (key) {
-            case 'educational': return '#3b82f6';
-            case 'product': return '#10b981';
-            case 'community': return '#f59e0b';
-            case 'brand': return '#8b5cf6';
-        }
-    };
 
     return (
         <div style={{
@@ -583,12 +767,77 @@ const ContentCalendarPage = () => {
             }}>
                 <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                        <h1 style={{ fontSize: '20px', fontWeight: '700', letterSpacing: '-0.02em', margin: 0, color: '#fafafa' }}>Content<span style={{ color: '#4f46e5' }}>AI</span></h1>
+                        <h1 style={{ fontSize: '26px', fontWeight: '800', letterSpacing: '-0.03em', margin: 0, color: '#fafafa' }}>Content<span style={{ color: '#4f46e5' }}>AI</span></h1>
                     </div>
                     <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                         <div style={{ fontSize: '13px', color: (isDirty || !isValid) ? '#f59e0b' : '#10b981', fontWeight: '600', transition: 'color 0.3s' }}>
                             {isDirty ? '● Unsaved Changes' : '● System Ready'}
                         </div>
+                        {view === 'list' && (
+                            <div style={{ display: 'flex', gap: '8px', borderRight: '1px solid #27272a', paddingRight: '16px', marginRight: '8px' }}>
+                                {!isEditing ? (
+                                    <button
+                                        onClick={() => setIsEditing(true)}
+                                        style={{
+                                            padding: '8px 16px',
+                                            backgroundColor: '#27272a',
+                                            color: '#fafafa',
+                                            border: '1px solid #3f3f46',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontWeight: '600',
+                                            fontSize: '13px',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        Edit Content
+                                    </button>
+                                ) : (
+                                    <>
+                                        <button
+                                            onClick={() => {
+                                                setStagedEdits({});
+                                                setIsEditing(false);
+                                            }}
+                                            style={{
+                                                padding: '8px 16px',
+                                                backgroundColor: 'transparent',
+                                                color: '#a1a1aa',
+                                                border: '1px solid #27272a',
+                                                borderRadius: '6px',
+                                                cursor: 'pointer',
+                                                fontWeight: '600',
+                                                fontSize: '13px',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                await handleSaveChanges();
+                                                setIsEditing(false);
+                                            }}
+                                            disabled={isSavingChanges || Object.keys(stagedEdits).length === 0}
+                                            style={{
+                                                padding: '8px 16px',
+                                                backgroundColor: '#4f46e5',
+                                                color: '#fff',
+                                                border: 'none',
+                                                borderRadius: '6px',
+                                                cursor: (isSavingChanges || Object.keys(stagedEdits).length === 0) ? 'not-allowed' : 'pointer',
+                                                fontWeight: '600',
+                                                fontSize: '13px',
+                                                transition: 'all 0.2s',
+                                                opacity: (isSavingChanges || Object.keys(stagedEdits).length === 0) ? 0.5 : 1
+                                            }}
+                                        >
+                                            {isSavingChanges ? <Spinner /> : 'Save Changes'}
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        )}
                         <button
                             onClick={handleApplyChanges}
                             disabled={!isDirty || !isValid}
@@ -609,6 +858,26 @@ const ContentCalendarPage = () => {
                     </div>
                 </div>
             </header>
+
+            {isRegeneratePostModalOpen && selectedPostForRegen && (
+                <RegeneratePostModal
+                    isOpen={isRegeneratePostModalOpen}
+                    onClose={() => setIsRegeneratePostModalOpen(false)}
+                    onConfirm={handleConfirmPostRegeneration}
+                    postDate={selectedPostForRegen.date}
+                    platform={selectedPostForRegen.platform}
+                />
+            )}
+
+            <RegenerateWeekModal
+                isOpen={regenerateModalOpen}
+                onClose={() => setRegenerateModalOpen(false)}
+                onConfirm={handleConfirmRegeneration}
+                startDate={regenerateRange?.start || new Date()}
+                endDate={regenerateRange?.end || new Date()}
+                primaryGoal={mapToPrimaryGoal(activeConfig.goal)}
+            />
+
 
             <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '40px 24px', display: 'flex', flexDirection: 'column', gap: '48px' }}>
 
@@ -676,10 +945,13 @@ const ContentCalendarPage = () => {
                                                     checked={draftConfig.brand.platforms?.includes(p)}
                                                     onChange={e => {
                                                         const current = draftConfig.brand.platforms || [];
-                                                        const next = e.target.checked
-                                                            ? [...current, p]
-                                                            : current.filter(x => x !== p);
-                                                        setDraftConfig(prev => ({ ...prev, brand: { ...prev.brand, platforms: next } }));
+                                                        if (e.target.checked) {
+                                                            const next = [...current, p];
+                                                            setDraftConfig(prev => ({ ...prev, brand: { ...prev.brand, platforms: next } }));
+                                                        } else {
+                                                            const next = current.filter(x => x !== p);
+                                                            setDraftConfig(prev => ({ ...prev, brand: { ...prev.brand, platforms: next } }));
+                                                        }
                                                     }}
                                                     style={{ display: 'none' }}
                                                 />
@@ -696,10 +968,11 @@ const ContentCalendarPage = () => {
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                                         {[
                                             { id: 'engagement', label: 'Engagement' },
-                                            { id: 'followers-growth', label: 'Growth' },
-                                            { id: 'lead-gen', label: 'Leads' },
+                                            { id: 'followers-growth', label: 'Followers Growth' },
+                                            { id: 'traffic', label: 'Traffic' },
+                                            { id: 'lead-gen', label: 'Lead-gen' },
                                             { id: 'sales', label: 'Sales' },
-                                            { id: 'thought-leadership', label: 'Authority' }
+                                            { id: 'thought-leadership', label: 'Thought Leadership' }
                                         ].map(g => (
                                             <label key={g.id} style={{
                                                 display: 'flex', alignItems: 'center', gap: '6px',
@@ -719,8 +992,7 @@ const ContentCalendarPage = () => {
                                                         setDraftConfig(prev => ({
                                                             ...prev,
                                                             goal: next[0] || prev.goal, // Fallback to avoid empty
-                                                            brand: { ...prev.brand, goals: next },
-                                                            customMix: undefined // Reset custom mix on goal change
+                                                            brand: { ...prev.brand, goals: next }
                                                         }));
                                                     }}
                                                     style={{ display: 'none' }}
@@ -759,125 +1031,7 @@ const ContentCalendarPage = () => {
                             </div>
                         </div>
 
-                        {/* Cohort Mix (Manual Override) */}
-                        <div style={{ backgroundColor: '#18181b', padding: '24px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #27272a', paddingBottom: '16px' }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }}></div>
-                                <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#fff', margin: 0 }}>Content Mix</h3>
-                            </div>
-
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <p style={{ fontSize: '12px', color: '#71717a', margin: 0 }}>Adjusting will override goal defaults.</p>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={isAiStrategyOn}
-                                        onChange={e => setIsAiStrategyOn(e.target.checked)}
-                                        style={{ accentColor: '#10b981' }}
-                                    />
-                                    <span style={{ fontSize: '11px', fontWeight: '700', color: isAiStrategyOn ? '#10b981' : '#71717a' }}>
-                                        {isSuggesting ? 'AI Suggesting...' : 'AI Suggestion'}
-                                    </span>
-                                </label>
-                            </div>
-
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {(['Educational', 'Product', 'Brand', 'Community'] as CohortType[]).map(cohort => {
-                                    // Determine current value
-                                    const primaryGoal = mapToPrimaryGoal(draftConfig.goal);
-                                    const defaultValue = GOAL_COHORT_DISTRIBUTION[primaryGoal][cohort];
-                                    const currentValue = draftConfig.customMix ? (draftConfig.customMix[cohort] || 0) : defaultValue;
-
-                                    const colorKey = cohort.toLowerCase() as keyof CohortMix;
-
-                                    return (
-                                        <div key={cohort} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                                                <span style={{ fontWeight: '600', color: '#d4d4d8' }}>{cohort}</span>
-                                                <span style={{ color: '#a1a1aa' }}>{Math.round(currentValue)}%</span>
-                                            </div>
-                                            <input
-                                                type="range"
-                                                min="0"
-                                                max="100"
-                                                step="1" // Allow fine grain since we auto-calc
-                                                value={currentValue}
-                                                onChange={(e) => {
-                                                    const newValue = parseInt(e.target.value);
-
-                                                    // SMART BALANCING LOGIC
-                                                    setDraftConfig(prev => {
-                                                        const pGoal = mapToPrimaryGoal(prev.goal);
-                                                        const oldMix = prev.customMix || { ...GOAL_COHORT_DISTRIBUTION[pGoal] };
-
-                                                        // 1. Calculate how much we need to distribute to others
-                                                        const targetRemainder = 100 - newValue;
-                                                        const otherKeys = (Object.keys(oldMix) as CohortType[]).filter(k => k !== cohort);
-
-                                                        // 2. Calculate current total of others
-                                                        const currentOtherTotal = otherKeys.reduce((sum, key) => sum + oldMix[key], 0);
-
-                                                        const newMix = { ...oldMix, [cohort]: newValue };
-
-                                                        if (currentOtherTotal === 0) {
-                                                            // Edge case: Others were 0, distribute remainder equally
-                                                            if (targetRemainder > 0) {
-                                                                const split = targetRemainder / otherKeys.length;
-                                                                otherKeys.forEach(k => newMix[k] = split);
-                                                            }
-                                                        } else {
-                                                            // 3. Proportional reduction/increase
-                                                            // Formula: NewOther = OldOther * (TargetRemainder / OldOtherTotal)
-                                                            const ratio = targetRemainder / currentOtherTotal;
-                                                            otherKeys.forEach(k => {
-                                                                newMix[k] = oldMix[k] * ratio;
-                                                            });
-                                                        }
-
-                                                        // 4. Rounding cleanup to ensure exact 100 (assign dust to largest other)
-                                                        let roundedSum = 0;
-                                                        let maxOtherKey = otherKeys[0];
-
-                                                        // Round all except the main one we are dragging (keep that precise if possible, or integer)
-                                                        // actually slider is integer, so we treat 'newValue' as fixed
-                                                        otherKeys.forEach(k => {
-                                                            newMix[k] = Math.round(newMix[k]);
-                                                            if (newMix[k] > newMix[maxOtherKey]) maxOtherKey = k;
-                                                            roundedSum += newMix[k];
-                                                        });
-
-                                                        const finalDust = 100 - (newValue + roundedSum);
-                                                        // Add dust to the largest other to minimize visual jumpiness
-                                                        if (finalDust !== 0 && maxOtherKey) {
-                                                            newMix[maxOtherKey] += finalDust;
-                                                        }
-
-                                                        return {
-                                                            ...prev,
-                                                            customMix: newMix
-                                                        };
-                                                    })
-                                                }}
-                                                disabled={isAiStrategyOn}
-                                                style={{
-                                                    width: '100%',
-                                                    accentColor: getColor(colorKey),
-                                                    opacity: isAiStrategyOn ? 0.4 : 1,
-                                                    cursor: isAiStrategyOn ? 'not-allowed' : 'pointer'
-                                                }}
-                                            />
-                                        </div>
-                                    );
-                                })}
-
-                                {/* Always 100% confirmation */}
-                                <div style={{ fontSize: '11px', color: isAiStrategyOn ? '#10b981' : '#10b981', marginTop: '4px', textAlign: 'center' }}>
-                                    {isAiStrategyOn ? '✨ AI Optimized Balance: 100%' : 'Smart Balanced: 100%'}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Insights */}
+                        {/* Insights (Data & Context) */}
                         <div style={{ backgroundColor: '#18181b', padding: '24px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #27272a', paddingBottom: '16px' }}>
                                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6' }}></div>
@@ -885,8 +1039,74 @@ const ContentCalendarPage = () => {
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', height: '100%' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#71717a' }}>Key Insight Source (CSV)</label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#71717a' }}>Key Insight Source (CSV)</label>
+                                        <div
+                                            onMouseEnter={() => setShowPerformanceTooltip(true)}
+                                            onMouseLeave={() => setShowPerformanceTooltip(false)}
+                                            onClick={() => setShowPerformanceTooltip(!showPerformanceTooltip)}
+                                            style={{
+                                                cursor: 'pointer',
+                                                color: '#fff',
+                                                fontSize: '11px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                transition: 'all 0.2s',
+                                                backgroundColor: '#3f3f46',
+                                                width: '16px',
+                                                height: '16px',
+                                                borderRadius: '50%',
+                                                lineHeight: 1
+                                            }}
+                                            onMouseOver={(e) => {
+                                                e.currentTarget.style.backgroundColor = '#52525b';
+                                                e.currentTarget.style.transform = 'scale(1.1)';
+                                            }}
+                                            onMouseOut={(e) => {
+                                                e.currentTarget.style.backgroundColor = '#3f3f46';
+                                                e.currentTarget.style.transform = 'scale(1)';
+                                            }}
+                                            aria-label="What should your performance data include?"
+                                        >
+                                            i
+                                        </div>
+
+                                        {showPerformanceTooltip && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: '24px',
+                                                left: '0',
+                                                zIndex: 100,
+                                                width: '300px',
+                                                backgroundColor: '#18181b',
+                                                border: '1px solid #27272a',
+                                                borderRadius: '8px',
+                                                padding: '16px',
+                                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
+                                                pointerEvents: 'none'
+                                            }}>
+                                                <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', fontWeight: '700', color: '#fff' }}>What should your performance data include?</h4>
+                                                <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#a1a1aa', lineHeight: '1.4' }}>For best results, include the following fields in your CSV:</p>
+                                                <ul style={{ margin: '0 0 12px 0', padding: '0 0 0 18px', fontSize: '12px', color: '#a1a1aa', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                    <li>Active days (posting frequency or dates)</li>
+                                                    <li>Type of post (Carousel, Reel, Static)</li>
+                                                    <li>Reach (number of accounts reached)</li>
+                                                    <li>Engagement metrics:
+                                                        <ul style={{ paddingLeft: '14px', marginTop: '4px', listStyleType: 'circle' }}>
+                                                            <li>Likes</li>
+                                                            <li>Comments</li>
+                                                            <li>Shares</li>
+                                                            <li>Clicks</li>
+                                                        </ul>
+                                                    </li>
+                                                    <li>Followers gained from the content</li>
+                                                </ul>
+                                                <p style={{ margin: 0, fontSize: '10px', color: '#71717a', fontStyle: 'italic' }}>More accurate data helps generate better content recommendations.</p>
+                                            </div>
+                                        )}
+                                    </div>
                                     <label style={{
                                         padding: '12px',
                                         backgroundColor: draftConfig.uploadStatus ? 'rgba(16, 185, 129, 0.1)' : '#27272a',
@@ -945,6 +1165,7 @@ const ContentCalendarPage = () => {
                                 </div>
                             </div>
                         </div>
+
                     </div>
                 </section>
 
@@ -964,25 +1185,6 @@ const ContentCalendarPage = () => {
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                            onClick={handleRebalance}
-                            disabled={isDirty || !isValid}
-                            style={{
-                                padding: '10px 16px',
-                                background: 'transparent',
-                                color: '#71717a',
-                                border: '1px solid transparent',
-                                borderRadius: '8px',
-                                cursor: (isDirty || !isValid) ? 'not-allowed' : 'pointer',
-                                fontWeight: '600',
-                                fontSize: '13px',
-                                transition: 'all 0.2s'
-                            }}
-                            onMouseEnter={e => { if (!isDirty) e.currentTarget.style.color = '#fff' }}
-                            onMouseLeave={e => { if (!isDirty) e.currentTarget.style.color = '#71717a' }}
-                        >
-                            ⚖️ Balance Mix
-                        </button>
                         <button
                             onClick={handleGenerateAll}
                             disabled={isGeneratingAll || !isValid}
@@ -1055,10 +1257,12 @@ const ContentCalendarPage = () => {
                             >
                                 List
                             </button>
-                            <div style={{ width: '1px', backgroundColor: '#3f3f46', margin: '4px 8px' }}></div>
+
                             <div style={{ position: 'relative' }}>
                                 <button
-                                    onClick={() => setShowExportMenu(!showExportMenu)}
+                                    onClick={() => {
+                                        setShowExportMenu(!showExportMenu);
+                                    }}
                                     disabled={isExporting || normalizedPosts.length === 0}
                                     style={{
                                         padding: '8px 12px',
@@ -1078,9 +1282,9 @@ const ContentCalendarPage = () => {
                                     {isExporting ? <Spinner size={12} color="#fff" /> : 'Export ▾'}
                                 </button>
                                 {showExportMenu && (
-                                    <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '6px', padding: '4px', zIndex: 60, width: '120px', boxShadow: '0 10px 15px rgba(0,0,0,0.5)' }}>
-                                        <button onClick={() => handleExport('csv')} style={{ display: 'block', width: '100%', padding: '8px', textAlign: 'left', background: 'transparent', border: 'none', color: '#a1a1aa', fontSize: '13px', cursor: 'pointer', borderRadius: '4px' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#27272a'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>CSV</button>
-                                        <button onClick={() => handleExport('xlsx')} style={{ display: 'block', width: '100%', padding: '8px', textAlign: 'left', background: 'transparent', border: 'none', color: '#a1a1aa', fontSize: '13px', cursor: 'pointer', borderRadius: '4px' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#27272a'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>Excel</button>
+                                    <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '6px', padding: '4px', zIndex: 60, width: '140px', boxShadow: '0 10px 15px rgba(0,0,0,0.5)' }}>
+                                        <button onClick={() => handleExport('csv')} style={{ display: 'block', width: '100%', padding: '8px 12px', textAlign: 'left', background: 'transparent', border: 'none', color: '#e4e4e7', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#27272a'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>Download CSV</button>
+                                        <button onClick={() => handleExport('xlsx')} style={{ display: 'block', width: '100%', padding: '8px 12px', textAlign: 'left', background: 'transparent', border: 'none', color: '#e4e4e7', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#27272a'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>Download Excel</button>
                                     </div>
                                 )}
                             </div>
@@ -1092,17 +1296,105 @@ const ContentCalendarPage = () => {
                         {view === 'calendar' ? (
                             <CalendarGrid
                                 posts={normalizedPosts}
+                                isLoading={isFetchingData}
                                 isGeneratingAll={isGeneratingAll}
                                 generatingPostIds={generatingPostIds}
-                                onRegenerateWeek={handleRegenerateWeek}
+                                onRegenerateWeek={onRegenerateWeekRequest}
                                 onStop={handleStopGeneration}
                             />
                         ) : (
-                            <ListView posts={normalizedPosts} onRegenerate={handleRegeneratePost} isGeneratingAll={isGeneratingAll} generatingPostIds={generatingPostIds} />
+                            <ListView
+                                posts={normalizedPosts}
+                                isLoading={isFetchingData}
+                                onRegenerateWeek={onRegenerateWeekRequest}
+                                isGeneratingAll={isGeneratingAll}
+                                generatingPostIds={generatingPostIds}
+                                onUpdatePost={handleUpdatePost}
+                                onStop={handleStopGeneration}
+                                isEditing={isEditing}
+                            />
                         )}
                     </div>
                 </section>
             </main>
+
+            {/* Fixed Save Bar */}
+            {Object.keys(stagedEdits).length > 0 && (
+                <div style={{
+                    position: 'fixed',
+                    bottom: '32px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 100,
+                    animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+                }}>
+                    <div style={{
+                        backgroundColor: '#18181b',
+                        border: '1px solid #27272a',
+                        borderRadius: '12px',
+                        padding: '12px 24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '24px',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4)'
+                    }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: '13px', fontWeight: '700', color: '#fff' }}>Unsaved changes</span>
+                            <span style={{ fontSize: '11px', color: '#71717a' }}>{Object.keys(stagedEdits).length} post{Object.keys(stagedEdits).length > 1 ? 's' : ''} modified</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                                onClick={() => setStagedEdits({})}
+                                disabled={isSavingChanges}
+                                style={{
+                                    padding: '8px 16px',
+                                    backgroundColor: 'transparent',
+                                    color: '#a1a1aa',
+                                    border: '1px solid #27272a',
+                                    borderRadius: '6px',
+                                    fontSize: '13px',
+                                    fontWeight: '600',
+                                    cursor: isSavingChanges ? 'not-allowed' : 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                Discard
+                            </button>
+                            <button
+                                onClick={handleSaveChanges}
+                                disabled={isSavingChanges}
+                                style={{
+                                    padding: '8px 20px',
+                                    backgroundColor: '#fff',
+                                    color: '#000',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    fontSize: '13px',
+                                    fontWeight: '700',
+                                    cursor: isSavingChanges ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                {isSavingChanges ? (
+                                    <>
+                                        <Spinner size={14} color="#000" />
+                                        Saving...
+                                    </>
+                                ) : 'Save Changes'}
+                            </button>
+                        </div>
+                    </div>
+                    <style>{`
+                        @keyframes slideUp {
+                            from { transform: translate(-50%, 20px); opacity: 0; }
+                            to { transform: translate(-50%, 0); opacity: 1; }
+                        }
+                    `}</style>
+                </div>
+            )}
         </div>
     );
 };

@@ -10,13 +10,13 @@ interface RebalanceResult {
 // educational -> Educational
 // product -> Product
 // brand -> Brand
-// community -> Community
+// value -> Value
 const mapCohortTypeToPillar = (type: keyof CohortMix): ContentPillar => {
     switch (type) {
         case 'educational': return 'Educational';
         case 'product': return 'Product';
         case 'brand': return 'Brand';
-        case 'community': return 'Community';
+        case 'value': return 'Value';
     }
 };
 
@@ -35,7 +35,7 @@ export const rebalanceCalendar = (
         educational: Math.round(total * (targetMix.educational / 100)),
         product: Math.round(total * (targetMix.product / 100)),
         brand: Math.round(total * (targetMix.brand / 100)),
-        community: Math.round(total * (targetMix.community / 100)),
+        value: Math.round(total * (targetMix.value / 100)),
     };
 
     // Adjust for rounding errors (simple fix: add to educational)
@@ -49,7 +49,7 @@ export const rebalanceCalendar = (
         educational: [],
         product: [],
         brand: [],
-        community: []
+        value: []
     };
 
     posts.forEach(post => {
@@ -108,7 +108,7 @@ export const rebalanceCalendar = (
         ...buckets.educational,
         ...buckets.product,
         ...buckets.brand,
-        ...buckets.community
+        ...buckets.value
     ].sort((a, b) => parseInt(a.id) - parseInt(b.id)); // Keep roughly original order if IDs are numeric
 
     return { rebalancedPosts, changes };
