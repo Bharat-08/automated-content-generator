@@ -1,8 +1,7 @@
 import { generateDateSlots } from './dateSlotGenerator';
-import { scheduleCalendar, UnscheduledRequirement } from './scheduleCalendar';
-import { ScheduledPost } from './hardConstraints';
-import { PostFormat } from './formatDecider';
-import { Platform } from './platformFrequency';
+import { scheduleCalendar, type UnscheduledRequirement } from './scheduleCalendar';
+import type { PostFormat } from './formatDecider';
+import type { Platform } from './platformFrequency';
 
 const runDebug = () => {
     console.log("Starting Debug...");
@@ -30,7 +29,7 @@ const runDebug = () => {
     console.log(`Days covered by slots: ${days}`);
 
     // 2. Mock converting to requirements (simplified)
-    const platformRequirements: UnscheduledRequirement[] = slots.map((s, i) => ({
+    const platformRequirements: UnscheduledRequirement[] = slots.map(s => ({
         cohort: 'Value',
         platform: s.platform,
         format: 'text' as PostFormat
