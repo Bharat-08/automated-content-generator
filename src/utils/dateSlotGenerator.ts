@@ -45,22 +45,20 @@ export const generateDateSlots = (config: SlotConfig): GeneratedSlot[] => {
 
     // 2. Simple Daily Loop (User Requested "Plan on all days")
     const pointer = new Date(startDate);
-    let platformIndex = 0;
 
     while (pointer <= endDate) {
-        // Round-robin distribution of platforms
-        const platform = platforms[platformIndex % platforms.length];
-
-        slots.push({
-            id: `slot-${pointer.getTime()}-${platformIndex}`,
-            date: new Date(pointer),
-            platform: platform,
-            format: 'text'
+        // Generate a slot for EACH active platform every day
+        platforms.forEach((platform, idx) => {
+            slots.push({
+                id: `slot-${pointer.getTime()}-${idx}`,
+                date: new Date(pointer),
+                platform: platform,
+                format: 'text'
+            });
         });
 
         // Advance
         pointer.setDate(pointer.getDate() + 1);
-        platformIndex++;
     }
 
     // 3. Sort
